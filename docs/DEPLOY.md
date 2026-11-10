@@ -26,7 +26,7 @@ sudo apt install ./mugshot-server_1.0.5_arm64.deb
 包会自动完成：
 
 - 安装二进制到 `/usr/bin/mugshot-server`、管理面板 `mugshot-ctl`
-- 应用菜单注册"Mugshot 服务端"入口（点开是管理面板：状态 / token / 日志 / 重启 / 编辑配置）
+- 应用菜单注册"Mugshot 服务端"入口（点开是管理面板：状态 / token / 日志 / 重启 / 编辑配置 / 主题外观深浅色）
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
 - 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）
@@ -176,7 +176,7 @@ device_btn_per_row: 5       # 设备选择按钮每行个数（最多 10）
    - **通知权限**（Android 13+）
    - **电池优化白名单**（保持后台稳定）
    - **厂商自启动引导**（小米/华为/OPPO/vivo/三星等，App 会尝试直接跳转对应管理页）
-5. 首页显示连接状态与实时设备信息（电池/网络/屏幕/前台应用等）；"关于"页展示构建版本（Git 短哈希）并可检查更新。状态显示"已连接服务器"即成功。
+5. 首页显示连接状态与实时设备信息（电池/网络/屏幕/前台应用等）；"设置"页可切换主题外观（跟随系统/浅色/深色，默认跟随系统）；"关于"页展示构建版本（Git 短哈希）并可检查更新。状态显示"已连接服务器"即成功。
 
 ### Android 15 dataSync 限制
 

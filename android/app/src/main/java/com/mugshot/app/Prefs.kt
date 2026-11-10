@@ -17,6 +17,12 @@ object Prefs {
     const val KEY_DEVICE_NAME = "device_name"
     const val KEY_REPORT_INTERVAL = "report_interval_sec"
     const val KEY_LAST_REPORT_TS = "last_report_ts"
+    const val KEY_THEME_MODE = "theme_mode"
+
+    /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
+    const val THEME_FOLLOW_SYSTEM = 0
+    const val THEME_LIGHT = 1
+    const val THEME_DARK = 2
 
     private fun sp(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -61,6 +67,10 @@ object Prefs {
     var lastReportTs: Long
         get() = sp(MugshotApp.instance).getLong(KEY_LAST_REPORT_TS, 0)
         set(v) = sp(MugshotApp.instance).edit().putLong(KEY_LAST_REPORT_TS, v).apply()
+
+    var themeMode: Int
+        get() = sp(MugshotApp.instance).getInt(KEY_THEME_MODE, THEME_FOLLOW_SYSTEM)
+        set(v) = sp(MugshotApp.instance).edit().putInt(KEY_THEME_MODE, v).apply()
 
     fun isConfigured(): Boolean =
         serverUrl.startsWith("http") && deviceToken.isNotBlank()

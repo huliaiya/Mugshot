@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -33,6 +34,27 @@ class SettingsFragment : Fragment() {
         etUrl.setText(Prefs.serverUrl)
         etToken.setText(Prefs.deviceToken)
         etName.setText(Prefs.deviceName)
+
+        // 主题外观：切换立即生效（AppCompat 自动重建界面）
+        val rgTheme = view.findViewById<RadioGroup>(R.id.rg_theme)
+        rgTheme.check(
+            when (Prefs.themeMode) {
+                Prefs.THEME_LIGHT -> R.id.rb_light
+                Prefs.THEME_DARK -> R.id.rb_dark
+                else -> R.id.rb_follow
+            },
+        )
+        rgTheme.setOnCheckedChangeListener { _, checkedId ->
+            val mode = when (checkedId) {
+                R.id.rb_light -> Prefs.THEME_LIGHT
+                R.id.rb_dark -> Prefs.THEME_DARK
+                else -> Prefs.THEME_FOLLOW_SYSTEM
+            }
+            if (mode != Prefs.themeMode) {
+                Prefs.themeMode = mode
+                MugshotApp.instance.applyTheme()
+            }
+        }
 
         // 周期范围 30~1830 秒，步进 30
         sbInterval.max = 60

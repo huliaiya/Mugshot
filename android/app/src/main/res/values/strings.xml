@@ -100,4 +100,10 @@
     <string name="about_build_version">正式版</string>
     <string name="label_repo">项目仓库</string>
     <string name="label_package">应用包名</string>
+
+    <!-- 外观 -->
+    <string name="label_theme">主题外观</string>
+    <string name="theme_follow">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
 </resources>

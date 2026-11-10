@@ -1,8 +1,71 @@
 #!/usr/bin/env bash
 # mugshot-server 管理菜单（由应用菜单"Mugshot 服务端"启动，也可手动运行）
 # 无需 root 即可打开；查看配置/重启服务等操作会按需请求 sudo
+# 主题：跟随系统 / 深色 / 浅色（存于 ~/.config/mugshot/ctl.conf）
 SVC="mugshot-server"
 CFG="/etc/mugshot/config.json"
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/mugshot"
+CONF_FILE="$CONF_DIR/ctl.conf"
+
+# ---------- 主题 ----------
+
+load_theme() {
+    if [ -f "$CONF_FILE" ]; then
+        # shellcheck disable=SC1090
+        . "$CONF_FILE" 2>/dev/null
+    fi
+    THEME="${THEME:-follow}"
+}
+
+save_theme() {
+    mkdir -p "$CONF_DIR" 2>/dev/null
+    echo "THEME=$1" > "$CONF_FILE"
+}
+
+# 跟随系统时探测桌面外观：GNOME color-scheme 优先，探测失败按深色处理
+detect_system_theme() {
+    if command -v gsettings >/dev/null 2>&1; then
+        if gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -q "prefer-dark"; then
+            echo dark
+            return
+        fi
+        if gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | grep -qi "dark"; then
+            echo dark
+            return
+        fi
+    fi
+    echo dark
+}
+
+current_theme() {
+    if [ "$THEME" = "follow" ]; then
+        detect_system_theme
+    else
+        echo "$THEME"
+    fi
+}
+
+apply_colors() {
+    if [ "$(current_theme)" = "light" ]; then
+        C_TITLE="1;34"   # 粗体蓝：标题
+        C_ACCENT="1;36"  # 粗体青：强调
+        C_SUB="2;39"     # 暗淡：次要文字
+        C_OK="1;32"      # 粗体绿：正常
+        C_WARN="1;33"    # 粗体黄：警告
+        C_ERR="1;31"     # 粗体红：异常
+    else
+        C_TITLE="1;96"   # 亮青：标题
+        C_ACCENT="1;94"  # 亮蓝：强调
+        C_SUB="2;37"     # 暗淡灰
+        C_OK="1;92"
+        C_WARN="1;93"
+        C_ERR="1;91"
+    fi
+}
+
+c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
+
+# ---------- 业务动作 ----------
 
 pause() {
     echo
@@ -10,20 +73,20 @@ pause() {
 }
 
 show_status() {
-    echo "================ 服务状态 ================"
+    echo "$(c "$C_TITLE" "================ 服务状态 ================")"
     systemctl status "$SVC" --no-pager -l 2>&1 || true
     echo
-    echo "================ 监听端口 ================"
+    echo "$(c "$C_TITLE" "================ 监听端口 ================")"
     ss -tln 2>/dev/null | grep -E ':8080|mugshot' || echo "(服务未运行或未监听)"
     echo
-    echo "本机访问验证: curl http://127.0.0.1:8080/health"
-    echo "局域网服务器地址: http://本机IP:8080 （IP 可用 ip addr 查看）"
+    echo "本机访问验证: $(c "$C_ACCENT" "curl http://127.0.0.1:8080/health")"
+    echo "局域网服务器地址: $(c "$C_ACCENT" "http://本机IP:8080") （IP 可用 ip addr 查看）"
     pause
 }
 
 show_token() {
-    echo "================ 配置内容 ================"
-    echo "（device_token 填手机 App；plugin_token 填 Yunzai 插件）"
+    echo "$(c "$C_TITLE" "================ 配置内容 ================")"
+    echo "（$(c "$C_ACCENT" "device_token") 填手机 App；$(c "$C_ACCENT" "plugin_token") 填 Yunzai 插件）"
     echo
     if [ -r "$CFG" ]; then
         cat "$CFG"
@@ -44,7 +107,7 @@ show_logs() {
 
 do_restart() {
     echo "(可能提示输入密码)"
-    sudo systemctl restart "$SVC" && echo "已重启" || echo "重启失败"
+    sudo systemctl restart "$SVC" && echo "$(c "$C_OK" "已重启")" || echo "$(c "$C_ERR" "重启失败")"
     systemctl is-active "$SVC"
     pause
 }
@@ -55,7 +118,7 @@ do_stop_start() {
         sudo systemctl stop "$SVC" && echo "已停止"
     else
         echo "(可能提示输入密码)"
-        sudo systemctl start "$SVC" && echo "已启动"
+        sudo systemctl start "$SVC" && echo "$(c "$C_OK" "已启动")"
     fi
     systemctl is-active "$SVC"
     pause
@@ -69,12 +132,46 @@ edit_config() {
     pause
 }
 
+choose_theme() {
+    echo "当前主题: $(c "$C_ACCENT" "$([ "$THEME" = follow ] && echo "跟随系统（当前: $(current_theme)）" || echo "$THEME")")"
+    echo
+    echo "  1) 跟随系统"
+    echo "  2) 深色"
+    echo "  3) 浅色"
+    echo "  0) 返回"
+    echo
+    read -rp "请选择: " t
+    case "$t" in
+        1) save_theme follow ;;
+        2) save_theme dark ;;
+        3) save_theme light ;;
+        *) return ;;
+    esac
+    load_theme
+    apply_colors
+    echo "主题已切换: $(c "$C_OK" "$THEME")"
+    sleep 1
+}
+
+# ---------- 主循环 ----------
+
+load_theme
+apply_colors
+
 while true; do
     clear
-    echo "=========================================="
-    echo "       Mugshot 服务端管理 ($SVC)"
-    echo "=========================================="
-    echo "  当前状态: $(systemctl is-active "$SVC" 2>/dev/null || echo unknown)"
+    echo "$(c "$C_TITLE" "==========================================")"
+    echo "$(c "$C_TITLE" "       Mugshot 服务端管理") $(c "$C_SUB" "($SVC)")"
+    echo "$(c "$C_TITLE" "==========================================")"
+    state="$(systemctl is-active "$SVC" 2>/dev/null || echo unknown)"
+    if [ "$state" = "active" ]; then
+        state_text="$(c "$C_OK" "运行中")"
+    elif [ "$state" = "inactive" ] || [ "$state" = "failed" ]; then
+        state_text="$(c "$C_ERR" "$state")"
+    else
+        state_text="$(c "$C_WARN" "$state")"
+    fi
+    echo "  当前状态: $state_text $(c "$C_SUB" "主题: $([ "$THEME" = follow ] && echo "跟随系统" || echo "$THEME")")"
     echo
     echo "  1) 查看服务状态与验证方法"
     echo "  2) 查看配置（token / 服务器地址）"
@@ -82,6 +179,7 @@ while true; do
     echo "  4) 重启服务"
     echo "  5) 启动 / 停止服务"
     echo "  6) 编辑配置"
+    echo "  7) 主题外观（跟随系统 / 深色 / 浅色）"
     echo "  0) 退出"
     echo
     read -rp "请选择: " choice
@@ -92,6 +190,7 @@ while true; do
         4) do_restart ;;
         5) do_stop_start ;;
         6) edit_config ;;
+        7) choose_theme ;;
         0) exit 0 ;;
         *) ;;
     esac

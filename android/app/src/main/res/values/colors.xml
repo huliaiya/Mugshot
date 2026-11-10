@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 浅色主题（默认）；深色见 values-night/colors.xml -->
 <resources>
-    <color name="bg">#0F1420</color>
-    <color name="card">#172033</color>
-    <color name="text_main">#E8ECF4</color>
-    <color name="text_sub">#8B93A7</color>
-    <color name="warn">#FFB74D</color>
-    <color name="green">#3DD598</color>
-    <color name="red">#FF6363</color>
-    <color name="yellow">#FFD54F</color>
+    <color name="bg">#F4F6FA</color>
+    <color name="card">#FFFFFF</color>
+    <color name="card_stroke">#E1E6EF</color>
+    <color name="text_main">#1B2333</color>
+    <color name="text_sub">#687183</color>
+    <color name="warn">#A65E00</color>
+    <color name="green">#1FA97A</color>
+    <color name="red">#E04848</color>
+    <color name="yellow">#B98900</color>
     <color name="white">#FFFFFF</color>
-    <color name="accent">#7FB2FF</color>
-    <color name="nav_active">#7FB2FF</color>
-    <color name="nav_inactive">#8B93A7</color>
+    <color name="accent">#3B6FD4</color>
+    <color name="nav_active">#3B6FD4</color>
+    <color name="nav_inactive">#8A93A5</color>
 </resources>
