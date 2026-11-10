@@ -4,7 +4,7 @@ import makeConfig from "../../../lib/plugins/config.js"
 
 export const PLUGIN_NAME = "mugshot"
 export const PLUGIN_VERSION = "1.0.0"
-export const GITHUB_REPO_DEFAULT = "your-github-username/Mugshot"
+export const GITHUB_REPO_DEFAULT = "huliaiya/Mugshot"
 
 const DEFAULT = {
   // mugshot-server 地址（含端口），例如 http://192.168.1.10:8080 或 https://mugshot.example.com

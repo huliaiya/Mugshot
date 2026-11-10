@@ -1,0 +1,11 @@
+#!/bin/sh
+# deb 包卸载后：刷新 systemd；配置与数据默认保留（彻底清理见下）
+set -e
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+fi
+if [ "$1" = "purge" ]; then
+  echo "mugshot-server 已彻底卸载。如需删除全部数据与配置，请手动执行："
+  echo "  sudo rm -rf /etc/mugshot /var/lib/mugshot"
+fi
+exit 0

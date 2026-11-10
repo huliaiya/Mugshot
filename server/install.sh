@@ -3,7 +3,7 @@
 # 用法: sudo ./install.sh
 #   可选环境变量:
 #     MUGSHOT_LISTEN      监听地址，默认 :8080
-#     MUGSHOT_REPO        GitHub 仓库 owner/repo，用于更新检查
+#     MUGSHOT_REPO        GitHub 仓库 owner/repo，用于更新检查（默认 huliaiya/Mugshot）
 set -euo pipefail
 
 INSTALL_DIR="${MUGSHOT_INSTALL_DIR:-/opt/mugshot}"
@@ -43,7 +43,7 @@ if [[ ! -f "$INSTALL_DIR/config.json" ]]; then
   "fresh_cooldown_ms": 5000,
   "retention_days": 7,
   "online_timeout_sec": 120,
-  "github_repo": "${MUGSHOT_REPO:-}",
+  "github_repo": "${MUGSHOT_REPO:-huliaiya/Mugshot}",
   "update_auto_check": true
 }
 EOF

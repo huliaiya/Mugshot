@@ -1,0 +1,17 @@
+Package: mugshot-server
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Maintainer: huliaiya <huangshaoyehuang@gmail.com>
+Depends: systemd
+Recommends: ca-certificates
+Installed-Size: @INSTALLED_SIZE@
+Homepage: https://github.com/huliaiya/Mugshot
+Description: Mugshot 设备状态服务端
+ 接收 Android 设备通过 WebSocket/HTTP 上报的实时使用状态
+ （前台应用、屏幕、电量、充电、网络），维护设备在线表，
+ 提供 HTTP 查询 API 与 WebSocket 推送，供 TRSS-Yunzai 插件查询。
+ 支持 request_report 按需上报、多设备、数据保留期与自更新。
+ 安装后自动创建 mugshot 系统用户、生成 /etc/mugshot/config.json
+ （首次启动自动生成随机 token）并以 systemd 服务常驻。

@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 object Updater {
 
-    const val DEFAULT_REPO = "your-github-username/Mugshot"
+    const val DEFAULT_REPO = "huliaiya/Mugshot"
     private const val TIMEOUT_SEC = 30L
 
     private val client = OkHttpClient.Builder()

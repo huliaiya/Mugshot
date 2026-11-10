@@ -12,7 +12,32 @@ Mugshot 由三部分组成：
 
 ## 1. 部署 mugshot-server（Ubuntu ARM64）
 
-### 1.1 方式一：install.sh 一键安装（推荐）
+### 1.1 方式一：.deb 包一键安装（推荐，Ubuntu 26.04 ARM64）
+
+从 GitHub Release 下载 `mugshot-server_<版本>_arm64.deb`，然后：
+
+```bash
+sudo apt install ./mugshot-server_1.0.1_arm64.deb
+# 或: sudo dpkg -i mugshot-server_1.0.1_arm64.deb
+```
+
+包会自动完成：
+
+- 安装二进制到 `/usr/bin/mugshot-server`
+- 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
+- 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
+- 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）
+
+安装完成后查看 token 并填到 App 与插件：
+
+```bash
+sudo cat /etc/mugshot/config.json
+journalctl -u mugshot-server -f    # 实时日志
+```
+
+升级：下载新 .deb 再次 `apt install ./...` 即可，配置与数据自动保留。彻底卸载：`sudo apt purge mugshot-server`（配置/数据需按提示手动删除）。
+
+### 1.2 方式二：install.sh 脚本安装
 
 从 GitHub Release 下载 `mugshot-server_linux_arm64_<版本>.tar.gz` 并解压，然后：
 
@@ -22,7 +47,7 @@ sudo ./install.sh
 
 脚本会：创建 `mugshot` 系统用户、安装到 `/opt/mugshot`、生成 `config.json`（含自动生成的 device_token / plugin_token）、注册并启动 systemd 服务。
 
-### 1.2 方式二：手动部署
+### 1.3 方式三：手动部署
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin mugshot
@@ -55,14 +80,14 @@ sudo systemctl enable --now mugshot-server
 systemctl status mugshot-server
 ```
 
-### 1.3 验证
+### 1.4 验证
 
 ```bash
 curl -s http://127.0.0.1:8080/health
 curl -s -H "Authorization: Bearer <plugin_token>" http://127.0.0.1:8080/devices
 ```
 
-### 1.4 systemd 说明
+### 1.5 systemd 说明
 
 内置 `mugshot-server.service` 特性：
 
@@ -74,7 +99,7 @@ curl -s -H "Authorization: Bearer <plugin_token>" http://127.0.0.1:8080/devices
 
 > 自更新说明：`#mugshot更新` 触发后，服务端会从 GitHub Release（可配 `github_mirror` 前缀加速）下载新二进制替换自身，然后主动退出，由 systemd `Restart=always` 拉起新版本，约 5~10 秒恢复。
 
-### 1.5 公网暴露与 TLS
+### 1.6 公网暴露与 TLS
 
 仅在内网使用时无需 TLS。公网部署强烈建议前置 Nginx / Caddy 做 HTTPS + WebSocket 透传：
 
@@ -91,14 +116,29 @@ App 与插件中的服务器地址相应改为 `https://mug.example.com`。
 
 前提：TRSS-Yunzai（Miao-Yunzai/TRSS-Yunzai 均可，需支持 ESM 插件加载）、已配置 puppeteer 渲染器（图片渲染必需）。
 
+### 2.1 方式一：克隆插件专用分支（推荐）
+
+仓库的 `main` 分支由 CI 自动同步，内容就是插件根目录：
+
 ```bash
 cd <Yunzai根目录>/plugins
-git clone https://github.com/你的GitHub用户名/Mugshot.git  # 或复制 plugins/mugshot 目录
+git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 ```
 
-若仓库整体克隆，插件位于 `Mugshot/plugins/mugshot`，可软链：
+### 2.2 方式二：Release 包
+
+下载 Release 中的 `mugshot-plugin_<版本>.tar.gz`，解压到 `<Yunzai根目录>/plugins/mugshot`：
 
 ```bash
+mkdir -p <Yunzai根目录>/plugins/mugshot
+tar -xzf mugshot-plugin_1.0.1.tar.gz -C <Yunzai根目录>/plugins/mugshot --strip-components=1
+```
+
+### 2.3 方式三：完整仓库
+
+```bash
+cd <Yunzai根目录>/plugins
+git clone https://github.com/huliaiya/Mugshot.git
 ln -s "$(pwd)/Mugshot/plugins/mugshot" ./mugshot
 ```
 
@@ -168,7 +208,10 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 | Workflow | 触发 | 产物 |
 |----------|------|------|
 | build-android | push android/** 或 tag `v*` | APK（有 Secrets 时签名版） |
-| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_linux_arm64_<ver>.tar.gz`、裸二进制、`mugshot-plugin_<ver>.tar.gz` |
+| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<ver>_arm64.deb`、`mugshot-server_linux_arm64_<ver>.tar.gz`、裸二进制、`mugshot-plugin_<ver>.tar.gz` |
+
+- tag 构建会自动创建 GitHub Release（下载页）并附加全部产物
+- 插件内容会自动同步到仓库 `main` 分支（插件根目录），供 `git clone -b main` 安装
 
 Android 发布签名需要在仓库 Secrets 配置：
 

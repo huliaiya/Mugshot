@@ -1,0 +1,39 @@
+[Unit]
+Description=Mugshot Device Status Server
+Documentation=https://github.com/huliaiya/Mugshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/mugshot-server --config /etc/mugshot/config.json
+WorkingDirectory=/var/lib/mugshot
+User=mugshot
+Group=mugshot
+
+# ---- 保活策略 ----
+Restart=always
+RestartSec=5
+# 进程卡死时由 watchdog 兜底（应用内置 sd_notify 心跳，需启用时取消注释）
+# WatchdogSec=30
+# RuntimeMaxSec=24h
+
+# ---- 日志统一走 journald ----
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mugshot-server
+
+# ---- 基本加固 ----
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+StateDirectory=mugshot
+ReadWritePaths=/var/lib/mugshot
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

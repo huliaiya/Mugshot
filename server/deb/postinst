@@ -1,0 +1,65 @@
+#!/bin/sh
+# mugshot-server deb 包 postinst：建用户、生成配置、启动服务
+set -e
+
+SERVICE_USER="mugshot"
+
+# 1) 系统用户（幂等）
+if ! id "$SERVICE_USER" >/dev/null 2>&1; then
+  if command -v adduser >/dev/null 2>&1; then
+    adduser --system --group --no-create-home --home /nonexistent \
+      --shell /usr/sbin/nologin "$SERVICE_USER"
+  else
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
+    groupadd -f "$SERVICE_USER"
+    usermod -g "$SERVICE_USER" "$SERVICE_USER"
+  fi
+fi
+
+# 2) 配置文件（升级时保留既有配置与 token；首次安装生成模板，
+#    空 token 由服务端首次启动时自动生成随机值并写回）
+if [ ! -f /etc/mugshot/config.json ]; then
+  mkdir -p /etc/mugshot
+  cat > /etc/mugshot/config.json <<'EOF'
+{
+  "listen": ":8080",
+  "data_dir": "/var/lib/mugshot/data",
+  "device_token": "",
+  "plugin_token": "",
+  "report_rate_per_min": 30,
+  "fresh_timeout_ms": 5000,
+  "fresh_cooldown_ms": 5000,
+  "retention_days": 7,
+  "online_timeout_sec": 120,
+  "github_repo": "huliaiya/Mugshot",
+  "update_auto_check": true
+}
+EOF
+  chown "$SERVICE_USER:$SERVICE_USER" /etc/mugshot/config.json
+  chmod 600 /etc/mugshot/config.json
+fi
+
+# 3) 数据目录（StateDirectory 已建 /var/lib/mugshot，这里补 data 子目录）
+mkdir -p /var/lib/mugshot/data
+chown -R "$SERVICE_USER:$SERVICE_USER" /var/lib/mugshot
+
+# 4) 启用并启动服务
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+  systemctl enable mugshot-server.service || true
+  systemctl restart mugshot-server.service || true
+fi
+
+if [ "$1" = "configure" ]; then
+  echo ""
+  echo "=============================================="
+  echo " mugshot-server 安装完成，服务已启动"
+  echo "----------------------------------------------"
+  echo " 查看自动生成的 token:  sudo cat /etc/mugshot/config.json"
+  echo " 服务状态:              systemctl status mugshot-server"
+  echo " 实时日志:              journalctl -u mugshot-server -f"
+  echo " 数据目录:              /var/lib/mugshot"
+  echo "=============================================="
+fi
+
+exit 0

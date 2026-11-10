@@ -1,6 +1,6 @@
 [Unit]
 Description=Mugshot Device Status Server
-Documentation=https://github.com/your-github-username/Mugshot
+Documentation=https://github.com/huliaiya/Mugshot
 After=network-online.target
 Wants=network-online.target
 

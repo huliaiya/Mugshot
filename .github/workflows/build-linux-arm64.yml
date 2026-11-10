@@ -45,6 +45,12 @@ jobs:
             -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.commit=${GITHUB_SHA::8}" \
             -o mugshot-server .
 
+      - name: Build .deb package
+        working-directory: server
+        run: |
+          chmod +x build-deb.sh
+          ./build-deb.sh "${{ steps.ver.outputs.version }}" ./mugshot-server arm64
+
       - name: Package server
         working-directory: server
         run: |
@@ -55,7 +61,8 @@ jobs:
           tar -czf "mugshot-server_linux_arm64_${VER}.tar.gz" -C /tmp/pkg mugshot
           cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
           cp mugshot-server "../mugshot-server_linux_arm64_${VER}"
-          ls -la ../*.tar.gz ../*arm64*
+          cp "mugshot-server_${VER}_arm64.deb" ../
+          ls -la ../*.tar.gz ../*.deb ../*arm64*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -64,6 +71,7 @@ jobs:
           path: |
             mugshot-server_linux_arm64_*.tar.gz
             mugshot-server_linux_arm64_*
+            mugshot-server_*_arm64.deb
 
   plugin:
     runs-on: ubuntu-latest
@@ -87,6 +95,22 @@ jobs:
           cp -r plugins/mugshot/. /tmp/pkg/mugshot-plugin/
           tar -czf "mugshot-plugin_${VER}.tar.gz" -C /tmp/pkg mugshot-plugin
           ls -la mugshot-plugin_*.tar.gz
+
+      - name: Publish plugin to main branch
+        run: |
+          # 把 plugins/mugshot 的内容作为仓库根目录发布到 main 分支，
+          # 用户可直接: git clone -b main <repo> mugshot 装进 Yunzai plugins/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TREE=$(git rev-parse HEAD:plugins/mugshot)
+          PARENT=$(git ls-remote origin refs/heads/main | awk '{print $1}')
+          if [ -n "$PARENT" ]; then
+            COMMIT=$(git commit-tree "$TREE" -p "$PARENT" -m "sync: 插件内容更新")
+          else
+            COMMIT=$(git commit-tree "$TREE" -m "Mugshot TRSS-Yunzai 插件（本分支即插件根目录）")
+          fi
+          git push origin "$COMMIT:refs/heads/main" --force
+          echo "已发布插件内容到 main 分支"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

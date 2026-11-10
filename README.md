@@ -43,9 +43,9 @@
 
 ## 快速开始
 
-1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：见 `docs/DEPLOY.md` 或 `server/install.sh`
-2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录，配置 `config/mugshot.yaml`（服务端地址与插件 token）
-3. 安装 Mugshot APK，同意隐私政策，授予使用情况访问权限，填写服务端地址与设备 token，开启上报
+1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，或见 `docs/DEPLOY.md`
+2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与插件 token）
+3. 安装 Mugshot APK（Release 下载），同意隐私政策，授予使用情况访问权限，填写服务端地址与设备 token，开启上报
 
 详细部署与三端联调配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
@@ -54,8 +54,8 @@
 | 产物 | 方式 |
 | --- | --- |
 | Android APK | GitHub Actions `build-android.yml`，或本地 `cd android && ./gradlew assembleRelease` |
-| mugshot-server linux-arm64 | GitHub Actions `build-linux-arm64.yml`（`ubuntu-24.04-arm` 原生构建），或本地 `cd server && CGO_ENABLED=0 go build` |
-| 插件 | 纯源码，无构建步骤；Release 附带 `mugshot-plugin_<版本>.tar.gz` |
+| mugshot-server linux-arm64 | GitHub Actions `build-linux-arm64.yml`（`ubuntu-24.04-arm` 原生构建），产出 `.deb`（`apt install` 即装）、`.tar.gz` 与裸二进制；本地 `cd server && CGO_ENABLED=0 go build` |
+| 插件 | 纯源码，无构建步骤；Release 附带 `mugshot-plugin_<版本>.tar.gz`，插件内容同时自动同步到 `main` 分支（可直接 `git clone -b main` 安装） |
 
 三端均内置更新检查（启动时与每日一次，GitHub Releases，主源失败自动尝试备用源）与手动更新入口。
 
