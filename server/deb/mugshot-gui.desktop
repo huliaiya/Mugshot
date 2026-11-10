@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Mugshot 服务端
+Name[en]=Mugshot Server
+Comment=查看设备、Token 与服务状态，管理 Mugshot 服务端
+Exec=mugshot-gui
+Icon=mugshot
+Terminal=false
+Categories=Network;Utility;System;
+Keywords=mugshot;server;device;上报;

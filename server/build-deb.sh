@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # 构建 mugshot-server 的 .deb 安装包
-# 用法: ./build-deb.sh <版本号> <二进制路径> [架构，默认 arm64]
+# 用法: ./build-deb.sh <版本号> <二进制路径> [架构，默认 arm64] [GUI 二进制路径]
 # 产物: mugshot-server_<版本>_<架构>.deb
 set -euo pipefail
 
-VERSION="${1:?用法: ./build-deb.sh <版本号> <二进制路径> [架构]}"
+VERSION="${1:?用法: ./build-deb.sh <版本号> <二进制路径> [架构] [GUI二进制]}"
 BIN="${2:?缺少二进制路径}"
 ARCH="${3:-arm64}"
+GUI="${4:-}"
 PKG="mugshot-server"
 DIR="$(cd "$(dirname "$0")" && pwd)/deb"
 
 if [[ ! -x "$BIN" ]]; then
   echo "错误: 二进制 $BIN 不存在或不可执行" >&2
+  exit 1
+fi
+if [[ -n "$GUI" && ! -x "$GUI" ]]; then
+  echo "错误: GUI 二进制 $GUI 不存在或不可执行" >&2
   exit 1
 fi
 
@@ -29,20 +34,28 @@ mkdir -p "$STAGE/DEBIAN"
 mkdir -p "$STAGE/usr/bin"
 mkdir -p "$STAGE/etc/systemd/system"
 mkdir -p "$STAGE/usr/share/applications"
+mkdir -p "$STAGE/usr/share/icons/hicolor/scalable/apps"
 mkdir -p "$STAGE/usr/share/doc/$PKG"
 
-# ---- 二进制、管理菜单与 systemd 单元 ----
+# ---- 二进制、管理界面与 systemd 单元 ----
 install -m 0755 "$BIN" "$STAGE/usr/bin/mugshot-server"
 install -m 0755 "$DIR/mugshot-ctl" "$STAGE/usr/bin/mugshot-ctl"
 install -m 0644 "$DIR/mugshot-server.service" "$STAGE/etc/systemd/system/mugshot-server.service"
 install -m 0644 "$DIR/mugshot-server.desktop" "$STAGE/usr/share/applications/mugshot-server.desktop"
+if [[ -n "$GUI" ]]; then
+  install -m 0755 "$GUI" "$STAGE/usr/bin/mugshot-gui"
+  install -m 0644 "$DIR/mugshot-gui.desktop" "$STAGE/usr/share/applications/mugshot-gui.desktop"
+  # 图标单一来源：GUI 包内的 icon.svg
+  install -m 0644 "$DIR/../cmd/mugshot-gui/icon.svg" "$STAGE/usr/share/icons/hicolor/scalable/apps/mugshot.svg"
+fi
 
 # ---- 文档 ----
 {
   echo "mugshot-server ($VERSION) for $ARCH"
   echo ""
-  echo "mugshot-server 是后台服务（无图形界面），安装后由 systemd 自动运行并开机自启。"
-  echo "应用菜单中点击\"Mugshot 服务端\"可打开管理面板（状态/token/日志/重启）。"
+  echo "mugshot-server 是后台服务，安装后由 systemd 自动运行并开机自启。"
+  echo "应用菜单中点击\"Mugshot 管理面板\"可打开图形界面（状态/设备/token/日志/启停）。"
+  echo "无桌面环境时可用终端菜单: mugshot-ctl"
   echo ""
   echo "查看 token:  sudo cat /etc/mugshot/config.json"
   echo "服务状态:    systemctl status mugshot-server"
@@ -52,7 +65,10 @@ install -m 0644 "$DIR/mugshot-server.desktop" "$STAGE/usr/share/applications/mug
 } > "$STAGE/usr/share/doc/$PKG/README"
 
 # ---- 控制文件（替换版本/架构/安装大小占位符）----
-SIZE_KB=$(( $(stat -c%s "$BIN") / 1024 + 128 ))
+SIZE_KB=$(( ($(stat -c%s "$BIN") / 1024) + 128 ))
+if [[ -n "$GUI" ]]; then
+  SIZE_KB=$(( SIZE_KB + $(stat -c%s "$GUI") / 1024 ))
+fi
 sed -e "s/@VERSION@/$VERSION/g" \
     -e "s/@ARCH@/$ARCH/g" \
     -e "s/@INSTALLED_SIZE@/$SIZE_KB/g" \

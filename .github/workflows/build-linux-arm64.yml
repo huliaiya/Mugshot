@@ -35,6 +35,18 @@ jobs:
             echo "release_tag=0.0.0" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install GUI build dependencies
+        run: |
+          # mugshot-gui 基于 Fyne，需要 cgo 与 GL/X11/Wayland 开发头文件
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1-mesa-dev xorg-dev libgbm-dev libwayland-dev
+
+      - name: Vet (含 GUI 包)
+        working-directory: server
+        env:
+          CGO_ENABLED: "1"
+        run: go vet ./...
+
       - name: Build server (linux/arm64)
         working-directory: server
         env:
@@ -42,16 +54,21 @@ jobs:
           GOOS: linux
           GOARCH: arm64
         run: |
-          go vet ./...
           go build -trimpath \
             -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.releaseTag=${{ steps.ver.outputs.release_tag }} -X main.commit=${GITHUB_SHA::8}" \
             -o mugshot-server .
+
+      - name: Build GUI (linux/arm64)
+        working-directory: server
+        run: |
+          # GUI 走本机原生 arm64 构建，CGO 打开
+          go build -trimpath -ldflags "-s -w" -o mugshot-gui ./cmd/mugshot-gui
 
       - name: Build .deb package
         working-directory: server
         run: |
           chmod +x build-deb.sh
-          ./build-deb.sh "${{ steps.ver.outputs.version }}" ./mugshot-server arm64
+          ./build-deb.sh "${{ steps.ver.outputs.version }}" ./mugshot-server arm64 ./mugshot-gui
 
       - name: Package server
         working-directory: server
@@ -64,6 +81,7 @@ jobs:
           cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
           # 裸二进制不带版本后缀：服务端自更新备用源按此固定名拼 URL，且各 Release 下不冲突
           cp mugshot-server "../mugshot-server_linux_arm64"
+          cp mugshot-gui "../mugshot-gui_linux_arm64"
           # deb 的 Version 字段要求以数字开头，build-deb.sh 会对字母开头的哈希补 0 前缀，用通配符匹配
           cp mugshot-server_*_arm64.deb ../
           ls -la ../*.tar.gz ../*.deb ../*arm64*
@@ -75,6 +93,7 @@ jobs:
           path: |
             mugshot-server_linux_arm64_*.tar.gz
             mugshot-server_linux_arm64
+            mugshot-gui_linux_arm64
             mugshot-server_*_arm64.deb
 
   plugin:

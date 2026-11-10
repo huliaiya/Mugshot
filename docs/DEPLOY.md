@@ -22,12 +22,14 @@ sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
 # 构建哈希 = Release 对应提交的 Git 短哈希，见 Release 页资产名
 ```
 
-注意：mugshot-server 是后台服务，没有图形界面窗口，装完后桌面没有图标属正常现象。它已由 systemd 自动启动并设为开机自启，无需手动启动。
+注意：mugshot-server 是后台服务，由 systemd 自动启动并开机自启；桌面操作通过图形管理面板完成。
 
 包会自动完成：
 
-- 安装二进制到 `/usr/bin/mugshot-server`、管理面板 `mugshot-ctl`
-- 应用菜单注册"Mugshot 服务端"入口（点开是管理面板：状态 / token / 日志 / 重启 / 编辑配置 / 主题外观深浅色）
+- 安装服务端 `/usr/bin/mugshot-server`、图形面板 `mugshot-gui`、终端菜单 `mugshot-ctl`
+- 应用菜单注册两个入口：
+  - **"Mugshot 服务端"**（图形界面）：运行状态 / 在线设备 / Token 查看复制 / 启动停止重启 / 查看日志 / 检查更新。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息
+  - **"Mugshot 终端管理"**（终端菜单 mugshot-ctl）：无桌面环境或 SSH 场景使用，含编辑配置与主题外观深浅色
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
 - 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）
@@ -36,7 +38,7 @@ sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
 
 ```bash
 sudo cat /etc/mugshot/config.json        # 直接查看
-# 或在应用菜单点击"Mugshot 服务端" → 选 2 查看配置
+# 或打开应用菜单"Mugshot 服务端"，Token 一栏可直接复制
 curl http://127.0.0.1:8080/health        # 验证服务在跑
 ```
 
@@ -213,7 +215,7 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 | Workflow | 触发 | 产物 |
 |----------|------|------|
 | build-android | push android/** 或 tag `v*` | 已签名 release APK（包名 `com.Mugshot.huli`） |
-| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<构建哈希>_arm64.deb`、`mugshot-server_linux_arm64_<构建哈希>.tar.gz`、裸二进制（固定名，供服务端自更新）、`mugshot-plugin_<ver>.tar.gz` |
+| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<构建哈希>_arm64.deb`（内含 GUI 面板）、`mugshot-server_linux_arm64_<构建哈希>.tar.gz`、裸二进制（固定名，供服务端自更新）、`mugshot-gui_linux_arm64`（GUI 面板）、`mugshot-plugin_<ver>.tar.gz` |
 
 服务端软件版本号 = 构建时的 Git 短哈希（`mugshot-server --version`、`/version` 接口可见）；更新检查按发布 tag 比较，与产物名中的哈希互不影响。
 

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Mugshot 服务端
-Name[en]=Mugshot Server
-Comment=mugshot-server 状态查看与管理
+Name=Mugshot 终端管理
+Name[en]=Mugshot Terminal Manager
+Comment=mugshot-server 终端菜单（mugshot-ctl），无桌面环境时使用
 Comment[en]=Status and management for mugshot-server
 Exec=mugshot-ctl
 Icon=utilities-terminal
