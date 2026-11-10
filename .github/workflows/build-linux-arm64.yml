@@ -61,7 +61,8 @@ jobs:
           tar -czf "mugshot-server_linux_arm64_${VER}.tar.gz" -C /tmp/pkg mugshot
           cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
           cp mugshot-server "../mugshot-server_linux_arm64_${VER}"
-          cp "mugshot-server_${VER}_arm64.deb" ../
+          # build-deb.sh 会对非数字开头的 dev 版本补 0 前缀，这里用通配符匹配产物
+          cp mugshot-server_*_arm64.deb ../
           ls -la ../*.tar.gz ../*.deb ../*arm64*
 
       - name: Upload artifact
