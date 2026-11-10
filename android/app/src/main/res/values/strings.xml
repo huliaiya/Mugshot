@@ -76,7 +76,6 @@
     <string name="label_foreground">当前应用</string>
     <string name="label_device_model">设备型号</string>
     <string name="label_android_ver">系统版本</string>
-    <string name="label_device_name">设备名称</string>
     <string name="label_device_id">设备 ID</string>
     <string name="label_report_interval">上报周期</string>
     <string name="label_last_report">最近上报</string>
