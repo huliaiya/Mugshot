@@ -11,6 +11,7 @@ android/app/build/
 android/local.properties
 android/.idea/
 *.keystore
+!android/app/mugshot-release.keystore
 !android/keystore.example.properties
 
 # Node
