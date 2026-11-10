@@ -22,3 +22,6 @@ node_modules/
 data/
 temp/
 
+
+# 本地构建产物
+server/*.deb

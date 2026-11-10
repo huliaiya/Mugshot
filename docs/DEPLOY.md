@@ -17,22 +17,26 @@ Mugshot 由三部分组成：
 从 GitHub Release 下载 `mugshot-server_<版本>_arm64.deb`，然后：
 
 ```bash
-sudo apt install ./mugshot-server_1.0.1_arm64.deb
-# 或: sudo dpkg -i mugshot-server_1.0.1_arm64.deb
+sudo apt install ./mugshot-server_1.0.5_arm64.deb
+# 或: sudo dpkg -i mugshot-server_1.0.5_arm64.deb
 ```
+
+注意：mugshot-server 是后台服务，没有图形界面窗口，装完后桌面没有图标属正常现象。它已由 systemd 自动启动并设为开机自启，无需手动启动。
 
 包会自动完成：
 
-- 安装二进制到 `/usr/bin/mugshot-server`
+- 安装二进制到 `/usr/bin/mugshot-server`、管理面板 `mugshot-ctl`
+- 应用菜单注册"Mugshot 服务端"入口（点开是管理面板：状态 / token / 日志 / 重启 / 编辑配置）
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
 - 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）
 
-安装完成后查看 token 并填到 App 与插件：
+安装完成后获取手机 App 与插件需要的 token（任选其一）：
 
 ```bash
-sudo cat /etc/mugshot/config.json
-journalctl -u mugshot-server -f    # 实时日志
+sudo cat /etc/mugshot/config.json        # 直接查看
+# 或在应用菜单点击"Mugshot 服务端" → 选 2 查看配置
+curl http://127.0.0.1:8080/health        # 验证服务在跑
 ```
 
 升级：下载新 .deb 再次 `apt install ./...` 即可，配置与数据自动保留。彻底卸载：`sudo apt purge mugshot-server`（配置/数据需按提示手动删除）。

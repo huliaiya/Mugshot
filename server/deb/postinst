@@ -50,15 +50,23 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl restart mugshot-server.service || true
 fi
 
+# 5) 刷新桌面应用菜单缓存（Mugshot 服务端管理入口）
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications 2>/dev/null || true
+fi
+
 if [ "$1" = "configure" ]; then
   echo ""
   echo "=============================================="
   echo " mugshot-server 安装完成，服务已启动"
+  echo " 它是后台服务，无窗口图标属正常现象"
   echo "----------------------------------------------"
-  echo " 查看自动生成的 token:  sudo cat /etc/mugshot/config.json"
-  echo " 服务状态:              systemctl status mugshot-server"
-  echo " 实时日志:              journalctl -u mugshot-server -f"
-  echo " 数据目录:              /var/lib/mugshot"
+  echo " 应用菜单点\"Mugshot 服务端\"打开管理面板"
+  echo " 验证运行:            curl http://127.0.0.1:8080/health"
+  echo " 查看自动生成的 token: sudo cat /etc/mugshot/config.json"
+  echo " 服务状态:            systemctl status mugshot-server"
+  echo " 实时日志:            journalctl -u mugshot-server -f"
+  echo " 数据目录:            /var/lib/mugshot"
   echo "=============================================="
 fi
 

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Mugshot 服务端
+Name[en]=Mugshot Server
+Comment=mugshot-server 状态查看与管理
+Comment[en]=Status and management for mugshot-server
+Exec=mugshot-ctl
+Icon=utilities-terminal
+Terminal=true
+Categories=System;Utility;
+Keywords=mugshot;server;status;

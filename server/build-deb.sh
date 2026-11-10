@@ -28,19 +28,27 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/DEBIAN"
 mkdir -p "$STAGE/usr/bin"
 mkdir -p "$STAGE/etc/systemd/system"
+mkdir -p "$STAGE/usr/share/applications"
 mkdir -p "$STAGE/usr/share/doc/$PKG"
 
-# ---- 二进制与 systemd 单元 ----
+# ---- 二进制、管理菜单与 systemd 单元 ----
 install -m 0755 "$BIN" "$STAGE/usr/bin/mugshot-server"
+install -m 0755 "$DIR/mugshot-ctl" "$STAGE/usr/bin/mugshot-ctl"
 install -m 0644 "$DIR/mugshot-server.service" "$STAGE/etc/systemd/system/mugshot-server.service"
+install -m 0644 "$DIR/mugshot-server.desktop" "$STAGE/usr/share/applications/mugshot-server.desktop"
 
 # ---- 文档 ----
 {
   echo "mugshot-server ($VERSION) for $ARCH"
   echo ""
-  echo "安装后: sudo cat /etc/mugshot/config.json   # 查看自动生成的 token"
-  echo "日志:   journalctl -u mugshot-server -f"
-  echo "数据:   /var/lib/mugshot"
+  echo "mugshot-server 是后台服务（无图形界面），安装后由 systemd 自动运行并开机自启。"
+  echo "应用菜单中点击\"Mugshot 服务端\"可打开管理面板（状态/token/日志/重启）。"
+  echo ""
+  echo "查看 token:  sudo cat /etc/mugshot/config.json"
+  echo "服务状态:    systemctl status mugshot-server"
+  echo "健康检查:    curl http://127.0.0.1:8080/health"
+  echo "日志:        journalctl -u mugshot-server -f"
+  echo "数据:        /var/lib/mugshot"
 } > "$STAGE/usr/share/doc/$PKG/README"
 
 # ---- 控制文件（替换版本/架构/安装大小占位符）----
