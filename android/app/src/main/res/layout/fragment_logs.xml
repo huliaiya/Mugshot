@@ -21,6 +21,14 @@
             android:textColor="@color/text_sub" />
 
         <Button
+            android:id="@+id/btn_log_mode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/btn_log_history"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <Button
             android:id="@+id/btn_refresh_log"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

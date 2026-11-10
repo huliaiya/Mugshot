@@ -113,7 +113,7 @@ func main() {
 }
 
 func runUpdateCLI(cfg *Config, apply bool) {
-	rel, err := CheckLatestRelease(cfg)
+	rel, err := CheckLatestReleaseForce(cfg)
 	if err != nil {
 		log.Fatalf("[update] 检查更新失败: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,13 +104,17 @@ type ui struct {
 	verLabel   *widget.Label
 	logView    *widget.Entry
 	logHint    *widget.Label
+	logModeBtn *widget.Button
 	tabs       *container.AppTabs
 
-	mu   sync.Mutex
-	conf guiConf
-	cli  *client
-	quit chan struct{}
-	once sync.Once
+	mu           sync.Mutex
+	conf         guiConf
+	cli          *client
+	quit         chan struct{}
+	once         sync.Once
+	lastStatusTx string
+	lastDevSig   string
+	logMode      string // "restart" 只看本次运行（默认） | "24h" 最近 24 小时
 }
 
 func main() {
@@ -206,8 +211,10 @@ func (u *ui) build() fyne.CanvasObject {
 	overview := container.NewVScroll(container.NewVBox(statusCard, devicesCard))
 
 	// ---- 运行日志页（页内展示，切换到本页即加载最新） ----
-	u.logHint = widget.NewLabel("显示服务最近 24 小时日志；切换到本页时自动加载最新内容。")
+	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志；切换到本页时自动加载最新内容。")
 	u.logHint.Wrapping = fyne.TextWrapWord
+	u.logMode = "restart"
+	u.logModeBtn = widget.NewButton("查看最近 24 小时", u.toggleLogMode)
 	logRefresh := widget.NewButton("刷新", func() { u.refreshRunLog() })
 	u.logView = widget.NewMultiLineEntry()
 	u.logView.Wrapping = fyne.TextWrapBreak
@@ -215,7 +222,7 @@ func (u *ui) build() fyne.CanvasObject {
 	u.logView.SetText("切换到本页时自动加载")
 	logPage := container.NewBorder(
 		container.NewVBox(
-			widget.NewCard("运行日志", "", container.NewVBox(u.logHint, container.NewHBox(logRefresh))),
+			widget.NewCard("运行日志", "", container.NewVBox(u.logHint, container.NewHBox(u.logModeBtn, logRefresh))),
 		),
 		nil, nil, nil,
 		container.NewScroll(u.logView),
@@ -313,10 +320,14 @@ func (u *ui) refreshHealth() {
 	cli := u.cli
 	data, err := cli.get("/health", false)
 	if err != nil {
+		tx := fmt.Sprintf("无法连接 %s（%v）", cli.base, err)
 		fyne.Do(func() {
 			u.statusDot.Segments[0] = &widget.TextSegment{Text: "● 离线", Style: dotStyle(false)}
 			u.statusDot.Refresh()
-			u.statusLn.SetText(fmt.Sprintf("无法连接 %s（%v）", cli.base, err))
+			// 内容不变不重绘，避免轮询导致的界面抖动
+			if u.statusLn.Text != tx {
+				u.statusLn.SetText(tx)
+			}
 		})
 		return
 	}
@@ -324,12 +335,17 @@ func (u *ui) refreshHealth() {
 	if json.Unmarshal(data, &h) != nil || !h.OK {
 		return
 	}
+	tx := fmt.Sprintf("版本 %s · 已运行 %s · 在线设备 %d / %d",
+		h.Version, fmtUptime(h.UptimeSec), h.DevicesOnline, h.DevicesTotal)
+	if tx == u.lastStatusTx {
+		return
+	}
 	fyne.Do(func() {
 		u.statusDot.Segments[0] = &widget.TextSegment{Text: "● 运行中", Style: dotStyle(true)}
 		u.statusDot.Refresh()
-		u.statusLn.SetText(fmt.Sprintf("版本 %s · 已运行 %s · 在线设备 %d / %d",
-			h.Version, fmtUptime(h.UptimeSec), h.DevicesOnline, h.DevicesTotal))
+		u.statusLn.SetText(tx)
 	})
+	u.lastStatusTx = tx
 }
 
 func (u *ui) refreshDevices() {
@@ -343,6 +359,12 @@ func (u *ui) refreshDevices() {
 		return
 	}
 	rows := d.Devices
+	// 数据无变化时跳过整块重绘
+	sig := deviceSig(rows)
+	if sig == u.lastDevSig {
+		return
+	}
+	u.lastDevSig = sig
 	fyne.Do(func() {
 		u.devSummary.SetText(fmt.Sprintf("共 %d 台设备", len(rows)))
 		u.devList.Objects = nil
@@ -361,6 +383,15 @@ func (u *ui) refreshDevices() {
 		}
 		u.devList.Refresh()
 	})
+}
+
+func deviceSig(rows []deviceRow) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "n=%d;", len(rows))
+	for _, r := range rows {
+		fmt.Fprintf(&b, "%s|%s|%t|%d|%d;", r.DeviceID, r.DeviceName, r.Online, r.LastReportAt, r.ReportCount)
+	}
+	return b.String()
 }
 
 func (u *ui) checkUpdate() {
@@ -437,17 +468,32 @@ func (u *ui) doUpdate() {
 	fyne.Do(func() { u.verLabel.SetText("等待服务重启超时，请稍后点击\"检查更新\"确认") })
 }
 
-// refreshRunLog 重新加载最近 24 小时的服务日志（journalctl）。
+// toggleLogMode 在"只看本次运行"与"最近 24 小时"两种视图间切换。
+func (u *ui) toggleLogMode() {
+	if u.logMode == "restart" {
+		u.logMode = "24h"
+		u.logModeBtn.SetText("只看本次运行")
+		u.logHint.SetText("最近 24 小时：跨重启查看历史日志（按日志文件原样展示，重启不会清除文件）。")
+	} else {
+		u.logMode = "restart"
+		u.logModeBtn.SetText("查看最近 24 小时")
+		u.logHint.SetText("只看本次运行：显示服务最近一次启动以来的日志；切换到本页时自动加载最新内容。")
+	}
+	u.refreshRunLog()
+}
+
+// refreshRunLog 重新加载服务日志（journalctl）。
 func (u *ui) refreshRunLog() {
+	mode := u.logMode
 	u.logView.SetText("正在加载日志……")
 	go func() {
-		text, err := serverLogs()
+		text, err := serverLogs(mode)
 		fyne.Do(func() {
 			if err != nil {
 				u.logView.SetText("读取日志失败：" + err.Error() +
 					"\n\n提示：把当前用户加入日志组后无需授权即可查看：\n  sudo usermod -aG systemd-journal $USER\n然后注销重新登录。")
 			} else if strings.TrimSpace(text) == "" {
-				u.logView.SetText("最近 24 小时没有日志")
+				u.logView.SetText("暂无日志")
 			} else {
 				u.logView.SetText(text)
 			}
@@ -455,10 +501,32 @@ func (u *ui) refreshRunLog() {
 	}()
 }
 
+// serviceStartSince 返回服务最近一次启动的时间字符串（供 journalctl --since）。
+func serviceStartSince() (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "systemctl", "show", "-p", "ActiveEnterTimestamp", "--value", "mugshot-server").Output()
+	s := strings.TrimSpace(string(out))
+	if err != nil || s == "" || s == "n/a" {
+		return "", false
+	}
+	return s, true
+}
+
 // serverLogs 优先直接读 journal（用户在 systemd-journal/adm 组内即可），
 // 无权限时回退 pkexec 授权读取；两者都带超时，避免界面卡在授权等待。
-func serverLogs() (string, error) {
-	args := []string{"-u", "mugshot-server", "--since", "-24 hours", "--no-pager", "-n", "3000"}
+// mode = "restart" 只取服务最近一次启动之后的日志；"24h" 取最近 24 小时。
+func serverLogs(mode string) (string, error) {
+	args := []string{"-u", "mugshot-server", "--no-pager", "-n", "3000"}
+	if mode == "restart" {
+		since, ok := serviceStartSince()
+		if !ok {
+			return "", errors.New("无法获取服务启动时间（systemctl 不可用？），可切换到\"最近 24 小时\"视图")
+		}
+		args = append(args, "--since", since)
+	} else {
+		args = append(args, "--since", "-24 hours")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if out, err := exec.CommandContext(ctx, "journalctl", args...).Output(); err == nil {

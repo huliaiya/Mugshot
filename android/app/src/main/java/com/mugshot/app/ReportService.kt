@@ -72,7 +72,7 @@ class ReportService : Service(), WsClient.Listener {
             stopSelf()
             return START_NOT_STICKY
         }
-        LogStore.log("service", "上报服务启动")
+        LogStore.markRestart("启动")
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_connecting)))
 
         wsClient?.stop()

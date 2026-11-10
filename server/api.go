@@ -268,7 +268,7 @@ func (a *API) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "method not allowed"})
 		return
 	}
-	rel, err := CheckLatestRelease(a.cfg)
+	rel, err := CheckLatestReleaseForce(a.cfg)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return

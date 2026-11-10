@@ -67,8 +67,16 @@ async function fetchLatest() {
   }
 }
 
-export async function checkForUpdate() {
+// GitHub 检查结果缓存：#mugshot状态 等指令可能频繁触发，5 分钟内复用同一结果，
+// 避免触发 GitHub API 限流；执行更新时强制刷新拿到真正的最新版本
+let ghCache = null // { tag, ts }
+
+export async function checkForUpdate(force = false) {
+  if (!force && ghCache && Date.now() - ghCache.ts < 5 * 60 * 1000) {
+    return { latest: ghCache.tag, current: localVersion(), updateAvailable: newerThan(ghCache.tag, localVersion()) }
+  }
   const { tag } = await fetchLatest()
+  ghCache = { tag, ts: Date.now() }
   return { latest: tag, current: localVersion(), updateAvailable: newerThan(tag, localVersion()) }
 }
 
@@ -101,7 +109,7 @@ async function downloadAndInstall(tag) {
 }
 
 export async function updatePlugin() {
-  const check = await checkForUpdate()
+  const check = await checkForUpdate(true)
   if (!check.updateAvailable) {
     return { updated: false, message: `当前已是最新版本 v${check.current}（远端 ${check.latest}）` }
   }

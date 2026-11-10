@@ -70,7 +70,9 @@
     <string name="tab_logs">运行日志</string>
     <string name="btn_refresh_log">刷新</string>
     <string name="log_empty">暂无日志</string>
-    <string name="log_hint">最近 24 小时的运行记录，进入本页自动加载最新</string>
+    <string name="log_hint">默认只看本次运行；重启服务后从新日志开始，最近 24 小时历史可随时回看</string>
+    <string name="btn_log_history">最近 24 小时</string>
+    <string name="btn_log_current">只看本次运行</string>
 
     <!-- 首页 -->
     <string name="home_section_device">设备信息</string>

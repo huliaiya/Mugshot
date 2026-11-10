@@ -300,6 +300,13 @@ export class Mugshot extends plugin {
         cooldownNote = `请求过于频繁（${Math.ceil(remain / 1000)} 秒冷却内），本次展示缓存数据`
       } else {
         this.freshCooldown.set(this.e.user_id, Date.now())
+        // 冷却表防膨胀：超过 500 个用户时清理过期项
+        if (this.freshCooldown.size > 500) {
+          const now = Date.now()
+          for (const [uid, ts] of this.freshCooldown) {
+            if (now - ts > (config.fresh_cooldown_ms || 10000)) this.freshCooldown.delete(uid)
+          }
+        }
       }
     }
 

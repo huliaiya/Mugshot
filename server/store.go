@@ -13,7 +13,7 @@ import (
 )
 
 func timeNowUnixNano() int64 { return time.Now().UnixNano() }
-func nowMs() int64          { return time.Now().UnixMilli() }
+func nowMs() int64           { return time.Now().UnixMilli() }
 
 // ReportPayload is the minimal device status snapshot. Fields are collected
 // automatically by the Android app; nothing beyond what the feature needs is
@@ -90,10 +90,10 @@ const maxRecent = 50
 
 func OpenStore(cfg *Config) (*Store, error) {
 	s := &Store{
-		cfg:    cfg,
-		file:   filepath.Join(cfg.DataDir, "devices.json"),
+		cfg:     cfg,
+		file:    filepath.Join(cfg.DataDir, "devices.json"),
 		devices: map[string]*Device{},
-		stopCh: make(chan struct{}),
+		stopCh:  make(chan struct{}),
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
 		return nil, err

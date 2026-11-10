@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,25 +36,62 @@ type Asset struct {
 
 var httpClient = &http.Client{Timeout: 20 * time.Second}
 
+// 更新检查缓存：/version、/admin/*、GUI、插件请求可能频繁触发，
+// 统一走 10 分钟 TTL 缓存；显式刷新（CLI --check-update）强制绕过。
+var (
+	relCacheMu     sync.Mutex
+	relCache       *Release
+	relCacheErr    error
+	relCacheAt     time.Time
+	relCacheOK     bool
+	relCacheTTL    = 10 * time.Minute
+	relCacheErrTTL = 60 * time.Second
+)
+
 // CheckLatestRelease queries GitHub Releases with failover: primary source is
 // the REST API; when it fails (rate limit / network), a redirect scrape of
 // /releases/latest is used so update checks keep working.
+// 结果带 TTL 缓存，成功 10 分钟、失败 60 秒。
 func CheckLatestRelease(cfg *Config) (*Release, error) {
+	return checkLatestRelease(cfg, false)
+}
+
+// CheckLatestReleaseForce 强制刷新（绕过缓存）。
+func CheckLatestReleaseForce(cfg *Config) (*Release, error) {
+	return checkLatestRelease(cfg, true)
+}
+
+func checkLatestRelease(cfg *Config, force bool) (*Release, error) {
 	repo := cfg.GithubRepo
 	if repo == "" {
 		return nil, errors.New("未配置 github_repo，无法检查更新（可在 config.json 设置 github_repo 或环境变量 MUGSHOT_GITHUB_REPO）")
 	}
 
+	relCacheMu.Lock()
+	defer relCacheMu.Unlock()
+	if !force {
+		ttl := relCacheErrTTL
+		if relCacheOK {
+			ttl = relCacheTTL
+		}
+		if relCache != nil && time.Since(relCacheAt) < ttl {
+			return relCache, relCacheErr
+		}
+	}
+
 	rel, apiErr := fetchViaAPI(repo)
 	if apiErr == nil {
+		relCache, relCacheErr, relCacheAt, relCacheOK = rel, nil, time.Now(), true
 		return rel, nil
 	}
 	log.Printf("[update] GitHub API 检查失败（%v），尝试备用源", apiErr)
 
 	rel, err := fetchViaRedirect(repo)
 	if err != nil {
-		return nil, fmt.Errorf("主源与备用源均失败: api=%v fallback=%v", apiErr, err)
+		relCache, relCacheErr, relCacheAt, relCacheOK = nil, fmt.Errorf("主源与备用源均失败: api=%v fallback=%v", apiErr, err), time.Now(), false
+		return nil, relCacheErr
 	}
+	relCache, relCacheErr, relCacheAt, relCacheOK = rel, nil, time.Now(), true
 	return rel, nil
 }
 

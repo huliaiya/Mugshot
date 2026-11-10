@@ -12,6 +12,7 @@ const DEVICE_EVENTS = new Set(["hello", "device_update", "device_online", "devic
 class ServerClient {
   constructor() {
     this.devicesCache = [] // 订阅广播维护的设备列表快照
+    this.cacheTs = 0 // 快照最近一次更新时间；WS 断开且快照过期后回退 HTTP
     this.ws = null
     this.wsState = "off" // off | connecting | open
     this.reconnectDelay = 1000
@@ -60,10 +61,16 @@ class ServerClient {
   }
 
   async getDevices() {
-    // 优先取广播缓存的快照，取不到再走 HTTP
-    if (this.devicesCache.length) return { devices: this.devicesCache, count: this.devicesCache.length, cached: true }
+    // 优先取广播缓存的快照：仅当 WS 在线或快照足够新（30 秒内）才信任，
+    // 避免长时间断线后列表里停留着过期的在线状态
+    const fresh = Date.now() - this.cacheTs < 30_000
+    if (this.wsState === "open" || fresh) {
+      if (this.devicesCache.length) {
+        return { devices: this.devicesCache, count: this.devicesCache.length, cached: true }
+      }
+    }
     const data = await this.request("/devices")
-    this.devicesCache = data.devices || []
+    this.#applySnapshotList(data.devices || [])
     return data
   }
 
@@ -135,16 +142,22 @@ class ServerClient {
       if (!DEVICE_EVENTS.has(msg.type)) return
       const data = msg.data || {}
       if (msg.type === "hello") {
-        this.devicesCache = data.devices || []
+        this.#applySnapshotList(data.devices || [])
       } else if ((msg.type === "device_update" || msg.type === "device_online") && data.device) {
         this.#applyDeviceSnapshot(data.device)
       } else if (msg.type === "device_offline" && data.device_id) {
         const d = this.devicesCache.find(i => i.device_id === data.device_id)
         if (d) d.online = false
       }
+      this.cacheTs = Date.now()
     } catch (err) {
       logger.debug(`[Mugshot] WebSocket 消息解析失败: ${err.message}`)
     }
+  }
+
+  #applySnapshotList(list) {
+    this.devicesCache = list
+    this.cacheTs = Date.now()
   }
 
   #applyDeviceSnapshot(device) {
@@ -152,6 +165,7 @@ class ServerClient {
     const idx = list.findIndex(i => i.device_id === device.device_id)
     if (idx >= 0) list[idx] = { ...list[idx], ...device }
     else list.push(device)
+    this.cacheTs = Date.now()
   }
 
   #scheduleReconnect() {

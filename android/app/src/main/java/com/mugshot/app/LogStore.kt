@@ -23,6 +23,9 @@ object LogStore {
     private val lock = Any()
     private var inited = false
 
+    /** 本次运行的起点：重启只清"显示"，文件里的历史保留 */
+    private var restartMark = 0
+
     fun init(ctx: Context) {
         synchronized(lock) {
             if (inited) return
@@ -60,8 +63,19 @@ object LogStore {
         }
     }
 
-    /** 最近 24 小时的日志（最新在末尾） */
+    /** 最近 24 小时的日志（最新在末尾，来自文件保留的历史） */
     fun snapshot(): List<String> = synchronized(lock) { lines.toList() }
+
+    /** 本次运行以来的日志：服务每次（重）启动时打标记，之后只显示新增内容 */
+    fun snapshotSinceRestart(): List<String> = synchronized(lock) {
+        if (restartMark >= lines.size) emptyList() else lines.toList().drop(restartMark)
+    }
+
+    /** 服务（重）启动时调用：显示从标记行重新开始，文件历史不受影响 */
+    fun markRestart(reason: String) {
+        log("service", "──── 上报服务${reason}，以下为本次运行日志 ────")
+        synchronized(lock) { restartMark = (lines.size - 1).coerceAtLeast(0) }
+    }
 
     private fun pruneLocked() {
         val cutoff = System.currentTimeMillis() - MAX_AGE_MS
