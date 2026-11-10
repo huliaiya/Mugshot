@@ -29,6 +29,9 @@
     <!-- 权限面板 -->
     <string name="perm_all_ok">所需权限均已就绪</string>
     <string name="perm_missing">缺少权限：%1$s</string>
+    <string name="perm_name_usage">使用情况访问权限</string>
+    <string name="perm_name_battery">电池优化白名单</string>
+    <string name="perm_name_notification">通知权限</string>
 
     <!-- 设置 -->
     <string name="label_server_url">服务器地址（mugshot-server）</string>
@@ -59,4 +62,43 @@
     <string name="update_no_apk">发现新版本 %1$s，但 Release 中没有 APK 附件</string>
     <string name="update_downloading">发现新版本 %1$s，正在下载…</string>
     <string name="update_failed">更新失败：%1$s</string>
+
+    <!-- 底部导航 -->
+    <string name="tab_home">首页</string>
+    <string name="tab_settings">设置</string>
+    <string name="tab_about">关于</string>
+
+    <!-- 首页 -->
+    <string name="home_section_device">设备信息</string>
+    <string name="label_battery">电池</string>
+    <string name="label_network">网络</string>
+    <string name="label_screen">屏幕</string>
+    <string name="label_foreground">当前应用</string>
+    <string name="label_device_model">设备型号</string>
+    <string name="label_android_ver">系统版本</string>
+    <string name="label_device_name">设备名称</string>
+    <string name="label_device_id">设备 ID</string>
+    <string name="label_report_interval">上报周期</string>
+    <string name="label_last_report">最近上报</string>
+    <string name="label_server">服务器</string>
+    <string name="value_unknown">未知</string>
+    <string name="value_screen_on">亮屏</string>
+    <string name="value_screen_off">熄屏</string>
+    <string name="value_discharging">使用电池</string>
+    <string name="value_battery_full">已充满</string>
+    <string name="value_charging_ac">充电中（交流电）</string>
+    <string name="value_charging_usb">充电中（USB）</string>
+    <string name="value_charging_wireless">充电中（无线）</string>
+    <string name="value_net_none">无网络</string>
+    <string name="value_net_wifi">Wi-Fi</string>
+    <string name="value_net_mobile">移动数据</string>
+    <string name="value_never">尚未上报</string>
+    <string name="home_detail_service">后台服务运行中</string>
+    <string name="home_detail_offline">服务未运行，点击"重新测试连接"检查配置</string>
+
+    <!-- 关于 -->
+    <string name="about_version_label">构建版本</string>
+    <string name="about_build_version">正式版</string>
+    <string name="label_repo">项目仓库</string>
+    <string name="label_package">应用包名</string>
 </resources>

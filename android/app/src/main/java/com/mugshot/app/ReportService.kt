@@ -34,6 +34,10 @@ class ReportService : Service(), WsClient.Listener {
         var isRunning = false
             private set
 
+        /** 服务内 WS 客户端当前连接状态（供首页直接读取） */
+        var currentState: String = WsClient.STATE_OFFLINE
+            private set
+
         fun start(ctx: Context) {
             val intent = Intent(ctx, ReportService::class.java).setAction(ACTION_START)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -73,6 +77,7 @@ class ReportService : Service(), WsClient.Listener {
         wsClient = WsClient(applicationContext, this).also { it.start() }
         scheduleFallbackWork()
         isRunning = true
+        currentState = WsClient.STATE_CONNECTING
         // START_STICKY：进程被杀后系统重建服务（intent 为 null），上面已处理
         return START_STICKY
     }
@@ -81,12 +86,14 @@ class ReportService : Service(), WsClient.Listener {
         wsClient?.stop()
         wsClient = null
         isRunning = false
+        currentState = WsClient.STATE_OFFLINE
         super.onDestroy()
     }
 
     // ---- WsClient.Listener ----
 
     override fun onStateChanged(state: String) {
+        currentState = state
         val text = when (state) {
             WsClient.STATE_ONLINE -> getString(R.string.service_online)
             WsClient.STATE_CONNECTING -> getString(R.string.service_connecting)

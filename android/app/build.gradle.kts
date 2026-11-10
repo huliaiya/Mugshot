@@ -11,8 +11,12 @@ android {
         applicationId = "com.Mugshot.huli"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.3"
+        versionCode = 4
+        versionName = "1.0.4"
+
+        // 关于页展示的"构建版本"= 构建时的 Git 短哈希；CI 传 -PgitHash=<sha8>，本地默认 dev
+        val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"
+        buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
     }
 
     signingConfigs {
@@ -43,6 +47,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    buildFeatures {
+        buildConfig = true
     }
 }
 

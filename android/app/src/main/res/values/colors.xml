@@ -10,4 +10,6 @@
     <color name="yellow">#FFD54F</color>
     <color name="white">#FFFFFF</color>
     <color name="accent">#7FB2FF</color>
+    <color name="nav_active">#7FB2FF</color>
+    <color name="nav_inactive">#8B93A7</color>
 </resources>

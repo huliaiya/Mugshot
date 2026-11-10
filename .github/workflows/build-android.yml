@@ -31,7 +31,8 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease
+          # 关于页"构建版本"注入当前提交短哈希
+          ./gradlew --no-daemon -PgitHash=${GITHUB_SHA::8} assembleRelease
 
       - name: Verify APK signature
         working-directory: android
