@@ -100,15 +100,11 @@ jobs:
         run: |
           # 把 plugins/mugshot 的内容作为仓库根目录发布到 main 分支，
           # 用户可直接: git clone -b main <repo> mugshot 装进 Yunzai plugins/
+          # 每次生成孤儿提交快照后 force push，避免浅克隆缺少远端 main 父对象
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           TREE=$(git rev-parse HEAD:plugins/mugshot)
-          PARENT=$(git ls-remote origin refs/heads/main | awk '{print $1}')
-          if [ -n "$PARENT" ]; then
-            COMMIT=$(git commit-tree "$TREE" -p "$PARENT" -m "sync: 插件内容更新")
-          else
-            COMMIT=$(git commit-tree "$TREE" -m "Mugshot TRSS-Yunzai 插件（本分支即插件根目录）")
-          fi
+          COMMIT=$(git commit-tree "$TREE" -m "sync: 插件内容快照")
           git push origin "$COMMIT:refs/heads/main" --force
           echo "已发布插件内容到 main 分支"
 

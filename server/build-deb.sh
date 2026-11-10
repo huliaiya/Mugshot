@@ -15,6 +15,12 @@ if [[ ! -x "$BIN" ]]; then
   exit 1
 fi
 
+# Debian Version 字段必须以数字开头，dev-xxx 之类前缀补 0
+case "$VERSION" in
+  [0-9]*) ;;
+  *) VERSION="0$VERSION" ;;
+esac
+
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
