@@ -203,8 +203,7 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 | `#mugshot在干嘛 [设备名]` | 同上（别名） |
 | `#mugshot详情 [设备名]` | 完整字段 + 最近 10 条上报记录 |
 | `#mugshot状态` | 服务端健康状态与版本 |
-| `#mugshot更新` | 服务端更新（Master 或群主） |
-| `#mugshot插件更新` | 插件更新（仅 Master） |
+| `#mugshot更新` | 一条指令检查并直接更新服务端与插件，无需二次确认（仅 Master） |
 
 - 多台设备时省略设备名会返回设备选择卡片（QQBot 适配器下带按钮）
 - 实时查询触发 `request_report`，设备在几秒内回报 `live` 数据；超时/离线/冷却自动降级缓存并标注 `CACHE`

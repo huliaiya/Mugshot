@@ -6,7 +6,7 @@
 //  - 所有指令回复均通过 e.runtime.render 渲染为图片后发送（配合 QQBot 按钮）
 //  - 按钮仅 QQBot 适配器可用（见 model/buttons.js），其他协议端自动降级为纯图片
 //  - 定时任务 cron 为 6 位（秒 分 时 日 月 星期）
-//  - 权限：#mugshot更新 仅 Master 或群主；#mugshot插件更新 仅 Master
+//  - 权限：#mugshot更新 仅 Master（一条指令直接检查并更新服务端与插件）
 import plugin from "../../lib/plugins/plugin.js"
 
 import { config } from "./model/config.js"
@@ -46,8 +46,7 @@ export class Mugshot extends plugin {
         { reg: "^#[mM]ugshot(查看|在干嘛)\\s*(.*)$", fnc: "viewDevice", permission: "all" },
         { reg: "^#[mM]ugshot详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
         { reg: "^#[mM]ugshot状态$", fnc: "serverStatus", permission: "all" },
-        { reg: "^#[mM]ugshot更新\\s*(.*)$", fnc: "serverUpdate", permission: "owner" },
-        { reg: "^#[mM]ugshot插件更新$", fnc: "pluginUpdate", permission: "master" },
+        { reg: "^#[mM]ugshot更新$", fnc: "serverUpdate", permission: "master" },
       ],
     })
     this.freshCooldown = new Map() // user_id -> last fresh query ts
@@ -94,8 +93,7 @@ export class Mugshot extends plugin {
           name: "系统维护",
           list: [
             { cmd: "#mugshot状态", desc: "服务端健康状态与版本" },
-            { cmd: "#mugshot更新", desc: "检查/执行服务端更新（Master 或群主）" },
-            { cmd: "#mugshot插件更新", desc: "更新 Mugshot 插件（仅 Master）" },
+            { cmd: "#mugshot更新", desc: "检查并直接更新服务端与插件（仅 Master）" },
           ],
         },
       ],
@@ -178,85 +176,71 @@ export class Mugshot extends plugin {
     ])
   }
 
-  /** #mugshot更新 [应用|跳过]（Master 或群主）：检查并可执行服务端自更新 */
+  /**
+   * #mugshot更新（仅 Master）：一条指令直接更新双端。
+   * 并行检查服务端与插件，发现有更新就直接执行，无需二次确认。
+   */
   async serverUpdate() {
-    const arg = (this.e.msg.replace(/^#[mM]ugshot更新/, "") || "").trim()
-    if (/^(应用|确认|确定|是|y|yes)$/i.test(arg)) {
-      return this.#applyServerUpdate()
+    const [serverCheck, pluginCheck] = await Promise.allSettled([
+      server.checkServerUpdate(),
+      checkForUpdate(),
+    ])
+    const s = serverCheck.status === "fulfilled" ? serverCheck.value : null
+    const p = pluginCheck.status === "fulfilled" ? pluginCheck.value : null
+    if (!s && !p) {
+      const detail = [
+        serverCheck.reason ? `服务端：${serverCheck.reason.message}` : "",
+        pluginCheck.reason ? `插件：${pluginCheck.reason.message}` : "",
+      ].filter(Boolean).join("\n")
+      return this.#renderError("更新检查失败", detail)
     }
-    if (/^(跳过|取消|否|n|no)$/i.test(arg)) {
-      return this.reply("已取消服务端更新。", true)
-    }
-    let resp
-    try {
-      resp = await server.checkServerUpdate()
-    } catch (err) {
-      return this.#renderError("服务端更新检查失败", err.message)
-    }
-    if (!resp.update_available) {
-      const data = updateCardData(`服务端已是最新版本`, `当前版本 ${resp.current}（远端 ${resp.latest}）`)
+
+    const sAvail = s?.update_available === true
+    const pAvail = p?.updateAvailable === true
+    if (!sAvail && !pAvail) {
+      const data = updateCardData("双端均已是最新版本", [
+        `服务端：${s ? `${s.current}（远端 ${s.latest}）` : "检查失败"}`,
+        `插件：${p ? `v${p.current}（远端 ${p.latest}）` : "检查失败"}`,
+      ].join("\n"))
       const img = await renderCard(this.e, "update", data)
-      return this.#send(img, null, [["更新检查渲染失败", `${resp.current} 已是最新（远端 ${resp.latest}）`]])
+      return this.#send(img, null, [["更新提示渲染失败", `服务端 ${s?.current || "-"} / 插件 v${p?.current || "-"} 均已是最新`]])
     }
-    // 有更新：渲染带确认按钮的卡片，60 秒内可回复“应用/跳过”
-    const data = updateCardData(
-      `发现服务端新版本 ${resp.latest}`,
-      `当前版本 ${resp.current}\n发布说明：${(resp.notes || "无").slice(0, 300)}\n\n回复“#mugshot更新 应用”开始更新，“#mugshot更新 跳过”取消（60 秒有效）`,
-      true,
-    )
-    const img = await renderCard(this.e, "update", data)
-    const rows = isQQBot(this.e)
-      ? [[commandButton("应用更新", "#mugshot更新 应用", 1), commandButton("暂不更新", "#mugshot更新 跳过", 2)]]
-      : []
-    this.setContext("onUpdateConfirm", this.e.isGroup, 60, "Mugshot 更新确认超时已取消")
-    return this.#send(img, rows, [["更新提示渲染失败", `发现服务端新版本 ${resp.latest}（当前 ${resp.current}）。回复“#mugshot更新 应用”执行更新。`]])
-  }
 
-  /** #mugshot更新（无参数）后 60 秒内的下一条消息回调；无关消息返回 "continue" 交给正常规则处理 */
-  async onUpdateConfirm() {
-    const msg = (this.e.msg || "").trim()
-    if (/应用|确认|确定|^是$|^y$|^yes$/i.test(msg)) {
-      this.finish("onUpdateConfirm")
-      return this.#applyServerUpdate()
-    }
-    if (/跳过|取消|不更新|否/.test(msg)) {
-      this.finish("onUpdateConfirm")
-      return this.reply("已取消服务端更新。", true)
-    }
-    return "continue"
-  }
+    // 有可用更新：直接执行（单端检查失败不影响另一端更新）
+    const lines = [
+      `检查结果：服务端${sAvail ? ` ${s.current} → ${s.latest}` : s ? "已是最新" : "检查失败"}，插件${pAvail ? ` v${p.current} → ${p.latest}` : p ? "已是最新" : "检查失败"}`,
+      "",
+    ]
 
-  async #applyServerUpdate() {
-    let resp
-    try {
-      resp = await server.applyServerUpdate()
-    } catch (err) {
-      return this.#renderError("服务端更新执行失败", err.message)
+    if (sAvail) {
+      try {
+        const resp = await server.applyServerUpdate()
+        lines.push(
+          resp.updated
+            ? `服务端：已开始更新 ${resp.from} → ${resp.to}，进程将自动重启（约 5~10 秒恢复）`
+            : `服务端：${resp.note || "已是最新"}`,
+        )
+      } catch (err) {
+        lines.push(`服务端：更新失败（${err.message}）`)
+      }
+    } else {
+      lines.push(s ? `服务端：已是最新（${s.current}）` : "服务端：检查失败，可发送 #mugshot状态 排查")
     }
-    if (resp.updated) {
-      const data = updateCardData("服务端更新已开始", `正在下载并应用 ${resp.to}\n进程将自动重启（systemd Restart=always），约 5~10 秒后恢复。`)
-      const img = await renderCard(this.e, "update", data)
-      return this.#send(img, null, [["更新提示渲染失败", `服务端正在更新到 ${resp.to}，进程将自动重启。`]])
-    }
-    const data = updateCardData("无需更新", resp.note || "服务端已是最新版本")
-    const img = await renderCard(this.e, "update", data)
-    return this.#send(img, null, [["更新提示渲染失败", resp.note || "已是最新版本"]])
-  }
 
-  /** #mugshot插件更新（仅 Master） */
-  async pluginUpdate() {
-    let result
-    try {
-      result = await updatePlugin()
-    } catch (err) {
-      return this.#renderError("插件更新失败", err.message)
+    if (pAvail) {
+      try {
+        const result = await updatePlugin()
+        lines.push(`插件：${result.message}`)
+      } catch (err) {
+        lines.push(`插件：更新失败（${err.message}）`)
+      }
+    } else {
+      lines.push(p ? `插件：已是最新（v${p.current}）` : "插件：检查失败，可发送 #mugshot状态 排查")
     }
-    const data = updateCardData(
-      result.updated ? "Mugshot 插件更新完成" : "Mugshot 插件已是最新",
-      result.message,
-    )
+
+    const data = updateCardData("双端更新结果", lines.join("\n"))
     const img = await renderCard(this.e, "update", data)
-    return this.#send(img, null, [["插件更新提示渲染失败", result.message]])
+    return this.#send(img, null, [["更新提示渲染失败", lines.join("\n")]])
   }
 
   // ---------- 内部通用流程 ----------
