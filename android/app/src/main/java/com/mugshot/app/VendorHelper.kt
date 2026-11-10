@@ -65,7 +65,7 @@ object VendorHelper {
     fun openAutostartSettings(activity: Activity) {
         val candidates = buildCandidates()
         for (c in candidates) {
-            if (tryStart(activity, c.intent)) return
+            if (tryStart(activity, c)) return
         }
         openAppDetails(activity)
     }

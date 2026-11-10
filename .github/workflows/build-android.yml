@@ -67,6 +67,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 若 Release 不存在则自动创建（下载页面），随后附加 APK
+          gh release view "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" \
+              --title "Mugshot ${GITHUB_REF_NAME}" --generate-notes
           # 优先附加签名 release APK；没有签名时附加 debug APK
           FILES=$(ls android/Mugshot-*-release.apk 2>/dev/null || ls android/Mugshot-*-debug.apk)
           gh release upload "${GITHUB_REF_NAME}" $FILES --clobber --repo "$GITHUB_REPOSITORY"

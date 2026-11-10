@@ -41,7 +41,7 @@ class PrivacyActivity : AppCompatActivity() {
         finish()
     }
 
-    private fun buildPrivacyText(): String = """
+    internal fun buildPrivacyText(): String = """
         Mugshot 隐私政策
 
         最后更新：2026-11-10

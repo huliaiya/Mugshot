@@ -150,6 +150,9 @@ class MainActivity : AppCompatActivity(), WsClient.Listener {
         }
     }
 
+    // 主界面探测客户端不会收到降级回调（仅前台服务使用），空实现即可
+    override fun onServiceDegraded(reason: String) {}
+
     private fun checkUpdate() {
         lifecycleScope.launch {
             val info = withContext(Dispatchers.IO) { Updater.checkUpdate(Updater.DEFAULT_REPO) }
