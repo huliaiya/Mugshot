@@ -161,7 +161,7 @@ device_btn_per_row: 5       # 设备选择按钮每行个数（最多 10）
 
 ## 3. 安装 Android App
 
-1. 从 Release 下载 APK 安装（CI 未配置签名时会提供 debug 签名 APK）。
+1. 从 Release 下载 APK 安装（release APK 已用仓库内置签名密钥签名，包名 `com.Mugshot.huli`，可直接安装；升级版本可覆盖安装，签名一致）。安装时系统会提示"未知来源应用"，允许即可。
 2. 首启阅读隐私政策并点击"同意并继续"（同意前 App 不发起任何网络请求）。
 3. 打开设置，填写：
    - 服务器地址：`http://服务器IP:8080`
@@ -207,16 +207,13 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 
 | Workflow | 触发 | 产物 |
 |----------|------|------|
-| build-android | push android/** 或 tag `v*` | APK（有 Secrets 时签名版） |
+| build-android | push android/** 或 tag `v*` | 已签名 release APK（包名 `com.Mugshot.huli`） |
 | build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<ver>_arm64.deb`、`mugshot-server_linux_arm64_<ver>.tar.gz`、裸二进制、`mugshot-plugin_<ver>.tar.gz` |
 
 - tag 构建会自动创建 GitHub Release（下载页）并附加全部产物
 - 插件内容会自动同步到仓库 `main` 分支（插件根目录），供 `git clone -b main` 安装
 
-Android 发布签名需要在仓库 Secrets 配置：
-
-- `ANDROID_KEYSTORE_B64`：keystore 文件的 base64（`base64 -w0 mugshot.keystore`）
-- `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`
+Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`（PKCS12，别名 `com.Mugshot.huli`，密码见 app/build.gradle.kts），CI 无需额外 Secrets；CI 会用 apksigner verify 校验签名。如需更换签名，替换该 keystore 文件并同步修改 build.gradle.kts（注意：换签名后无法覆盖安装旧版本，需先卸载）。
 
 打 tag 发布：`git tag v1.0.0 && git push origin v1.0.0`，三个 workflow 会自动构建并附到 Release。
 

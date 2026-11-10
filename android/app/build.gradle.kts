@@ -8,23 +8,21 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.mugshot.app"
+        applicationId = "com.Mugshot.huli"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.0.3"
     }
 
     signingConfigs {
-        // CI provides release signing via secrets; fall back to debug key locally.
+        // 仓库内置发布签名（PKCS12），保证各版本签名一致，可覆盖安装
         create("release") {
-            val storePath = System.getenv("MUGSHOT_KEYSTORE") ?: ""
-            if (storePath.isNotEmpty()) {
-                storeFile = file(storePath)
-                storePassword = System.getenv("MUGSHOT_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("MUGSHOT_KEY_ALIAS") ?: "mugshot"
-                keyPassword = System.getenv("MUGSHOT_KEY_PASSWORD")
-            }
+            storeFile = file("mugshot-release.keystore")
+            storeType = "PKCS12"
+            storePassword = "mugshot2026"
+            keyAlias = "com.Mugshot.huli"
+            keyPassword = "mugshot2026"
         }
     }
 
@@ -32,9 +30,7 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (System.getenv("MUGSHOT_KEYSTORE") != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"

@@ -45,7 +45,7 @@
 
 1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，或见 `docs/DEPLOY.md`
 2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与插件 token）
-3. 安装 Mugshot APK（Release 下载），同意隐私政策，授予使用情况访问权限，填写服务端地址与设备 token，开启上报
+3. 安装 Mugshot APK（Release 下载，已签名，包名 `com.Mugshot.huli`，可直接安装），同意隐私政策，授予使用情况访问权限，填写服务端地址与设备 token，开启上报
 
 详细部署与三端联调配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
