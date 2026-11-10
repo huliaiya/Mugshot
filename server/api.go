@@ -124,7 +124,7 @@ func (a *API) handleVersion(w http.ResponseWriter, r *http.Request) {
 		"commit":      commit,
 		"go":          goVersion(),
 		"latest":      latest,
-		"update":      latest != "" && NewerThan(latest, version),
+		"update":      latest != "" && NewerThan(latest, releaseTag),
 		"server_time": nowMs(),
 	})
 }
@@ -257,7 +257,7 @@ func (a *API) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		"ok":               true,
 		"current":          version,
 		"latest":           rel.Tag,
-		"update_available": NewerThan(rel.Tag, version),
+		"update_available": NewerThan(rel.Tag, releaseTag),
 		"notes":            rel.Notes,
 		"published_at":     rel.PublishedAt,
 	})
@@ -273,7 +273,7 @@ func (a *API) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	if !NewerThan(rel.Tag, version) {
+	if !NewerThan(rel.Tag, releaseTag) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": false, "current": version, "latest": rel.Tag, "note": "已是最新版本"})
 		return
 	}

@@ -17,8 +17,9 @@ Mugshot 由三部分组成：
 从 GitHub Release 下载 `mugshot-server_<版本>_arm64.deb`，然后：
 
 ```bash
-sudo apt install ./mugshot-server_1.0.5_arm64.deb
-# 或: sudo dpkg -i mugshot-server_1.0.5_arm64.deb
+sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
+# 或: sudo dpkg -i mugshot-server_<构建哈希>_arm64.deb
+# 构建哈希 = Release 对应提交的 Git 短哈希，见 Release 页资产名
 ```
 
 注意：mugshot-server 是后台服务，没有图形界面窗口，装完后桌面没有图标属正常现象。它已由 systemd 自动启动并设为开机自启，无需手动启动。
@@ -212,7 +213,9 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 | Workflow | 触发 | 产物 |
 |----------|------|------|
 | build-android | push android/** 或 tag `v*` | 已签名 release APK（包名 `com.Mugshot.huli`） |
-| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<ver>_arm64.deb`、`mugshot-server_linux_arm64_<ver>.tar.gz`、裸二进制、`mugshot-plugin_<ver>.tar.gz` |
+| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<构建哈希>_arm64.deb`、`mugshot-server_linux_arm64_<构建哈希>.tar.gz`、裸二进制（固定名，供服务端自更新）、`mugshot-plugin_<ver>.tar.gz` |
+
+服务端软件版本号 = 构建时的 Git 短哈希（`mugshot-server --version`、`/version` 接口可见）；更新检查按发布 tag 比较，与产物名中的哈希互不影响。
 
 - tag 构建会自动创建 GitHub Release（下载页）并附加全部产物
 - 插件内容会自动同步到仓库 `main` 分支（插件根目录），供 `git clone -b main` 安装

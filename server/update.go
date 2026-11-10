@@ -314,8 +314,8 @@ func UpdateCheckLoop(cfg *Config) {
 			log.Printf("[update] 定期检查更新失败: %v", err)
 			return
 		}
-		if !NewerThan(rel.Tag, version) {
-			log.Printf("[update] 定期检查：当前版本 %s 已是最新", version)
+		if !NewerThan(rel.Tag, releaseTag) {
+			log.Printf("[update] 定期检查：当前发布版本 %s 已是最新", releaseTag)
 			return
 		}
 		log.Printf("[update] 发现新版本 %s（当前 %s），可执行 `mugshot-server --update` 或发送 #mugshot更新", rel.Tag, version)

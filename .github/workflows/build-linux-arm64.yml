@@ -27,10 +27,12 @@ jobs:
       - name: Determine version
         id: ver
         run: |
+          # 软件版本号 = 构建时的 Git 短哈希；更新检查用发布 tag（非 tag 构建为 0.0.0）
+          echo "version=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=dev-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+            echo "release_tag=0.0.0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build server (linux/arm64)
@@ -42,7 +44,7 @@ jobs:
         run: |
           go vet ./...
           go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.commit=${GITHUB_SHA::8}" \
+            -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.releaseTag=${{ steps.ver.outputs.release_tag }} -X main.commit=${GITHUB_SHA::8}" \
             -o mugshot-server .
 
       - name: Build .deb package
@@ -60,8 +62,9 @@ jobs:
           cp mugshot-server.service install.sh /tmp/pkg/mugshot/
           tar -czf "mugshot-server_linux_arm64_${VER}.tar.gz" -C /tmp/pkg mugshot
           cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
-          cp mugshot-server "../mugshot-server_linux_arm64_${VER}"
-          # build-deb.sh 会对非数字开头的 dev 版本补 0 前缀，这里用通配符匹配产物
+          # 裸二进制不带版本后缀：服务端自更新备用源按此固定名拼 URL，且各 Release 下不冲突
+          cp mugshot-server "../mugshot-server_linux_arm64"
+          # deb 的 Version 字段要求以数字开头，build-deb.sh 会对字母开头的哈希补 0 前缀，用通配符匹配
           cp mugshot-server_*_arm64.deb ../
           ls -la ../*.tar.gz ../*.deb ../*arm64*
 
@@ -71,7 +74,7 @@ jobs:
           name: mugshot-server-linux-arm64
           path: |
             mugshot-server_linux_arm64_*.tar.gz
-            mugshot-server_linux_arm64_*
+            mugshot-server_linux_arm64
             mugshot-server_*_arm64.deb
 
   plugin:

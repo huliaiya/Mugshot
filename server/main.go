@@ -20,10 +20,11 @@ import (
 	"time"
 )
 
-// build info, overridable via -ldflags "-X main.version=... -X main.commit=..."
+// build info, overridable via -ldflags "-X main.version=... -X main.releaseTag=... -X main.commit=..."
 var (
-	version = "dev"
-	commit  = "unknown"
+	version    = "dev"   // 软件版本号 = 构建时的 Git 短哈希
+	releaseTag = "0.0.0" // 更新检查用的发布版本号（tag 构建注入，如 1.0.8）
+	commit     = "unknown"
 )
 
 var startTime = time.Now()
@@ -36,7 +37,7 @@ func main() {
 	flag.Parse()
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	log.Printf("[mugshot-server] version=%s commit=%s go=%s", version, commit, goVersion())
+	log.Printf("[mugshot-server] version=%s release=%s commit=%s go=%s", version, releaseTag, commit, goVersion())
 
 	if *showVersion {
 		return
@@ -119,8 +120,8 @@ func runUpdateCLI(cfg *Config, apply bool) {
 	if rel.Tag == "" {
 		log.Fatalf("[update] 未获取到最新版本号")
 	}
-	log.Printf("[update] 当前版本 %s，最新版本 %s", version, rel.Tag)
-	if !NewerThan(rel.Tag, version) {
+	log.Printf("[update] 当前发布版本 %s，最新版本 %s", releaseTag, rel.Tag)
+	if !NewerThan(rel.Tag, releaseTag) {
 		log.Printf("[update] 已是最新版本")
 		return
 	}
