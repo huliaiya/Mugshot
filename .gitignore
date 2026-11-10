@@ -1,0 +1,23 @@
+# Go
+server/mugshot-server
+server/data/
+*.test
+*.out
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.keystore
+!android/keystore.example.properties
+
+# Node
+node_modules/
+*.log
+
+# Runtime data
+data/
+temp/
+

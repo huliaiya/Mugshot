@@ -1,0 +1,72 @@
+# Mugshot Android APK 构建
+# - push 到 master 且改动 android/** 时：构建并上传 artifact
+# - push tag v* 时：构建并附加到 GitHub Release
+# - 发布签名：仓库 Secrets 配置 ANDROID_KEYSTORE_B64(keystore 的 base64)、
+#   ANDROID_KEYSTORE_PASSWORD、ANDROID_KEY_ALIAS、ANDROID_KEY_PASSWORD；
+#   未配置签名时回退输出 debug 签名 APK（可直接安装测试）
+name: build-android
+
+on:
+  push:
+    branches: [master, main]
+    paths: ["android/**", ".github/workflows/build-android.yml"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Decode release keystore (optional)
+        if: env.ANDROID_KEYSTORE_B64 != ''
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/mugshot.keystore
+          echo "MUGSHOT_KEYSTORE=/tmp/mugshot.keystore" >> "$GITHUB_ENV"
+          echo "MUGSHOT_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "MUGSHOT_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "MUGSHOT_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease assembleDebug
+
+      - name: Rename artifacts
+        working-directory: android
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          TAG="build"
+          if ls app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
+            cp app/build/outputs/apk/release/*.apk "Mugshot-${VER}-release.apk" || true
+          fi
+          cp app/build/outputs/apk/debug/*.apk "Mugshot-${VER}-debug.apk"
+          ls -la *.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mugshot-apk
+          path: android/*.apk
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 优先附加签名 release APK；没有签名时附加 debug APK
+          FILES=$(ls android/Mugshot-*-release.apk 2>/dev/null || ls android/Mugshot-*-debug.apk)
+          gh release upload "${GITHUB_REF_NAME}" $FILES --clobber --repo "$GITHUB_REPOSITORY"

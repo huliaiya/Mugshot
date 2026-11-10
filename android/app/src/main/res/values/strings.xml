@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mugshot</string>
+    <string name="title_settings">Mugshot 设置</string>
+    <string name="title_privacy">隐私政策</string>
+
+    <!-- 状态 -->
+    <string name="state_online">已连接服务器</string>
+    <string name="state_connecting">连接中…</string>
+    <string name="state_offline">未连接</string>
+    <string name="state_error">连接失败</string>
+    <string name="state_detail_empty">完成设置后点击"重新测试"</string>
+    <string name="probe_testing">正在测试连接…</string>
+    <string name="probe_timeout">连接超时，请检查配置</string>
+
+    <!-- 按钮 -->
+    <string name="btn_agree">同意并继续</string>
+    <string name="btn_disagree">不同意</string>
+    <string name="btn_settings">打开设置</string>
+    <string name="btn_usage">授予"使用情况访问权限"</string>
+    <string name="btn_battery">申请电池优化白名单</string>
+    <string name="btn_autostart">厂商自启动设置引导</string>
+    <string name="btn_check_update">检查应用更新</string>
+    <string name="btn_privacy">查看隐私政策</string>
+    <string name="btn_retest">重新测试连接</string>
+    <string name="btn_configure_first">先完成服务器配置</string>
+    <string name="btn_save">保存并重启服务</string>
+
+    <!-- 权限面板 -->
+    <string name="perm_all_ok">所需权限均已就绪</string>
+    <string name="perm_missing">缺少权限：%1$s</string>
+
+    <!-- 设置 -->
+    <string name="label_server_url">服务器地址（mugshot-server）</string>
+    <string name="hint_server_url">http://192.168.1.10:8080</string>
+    <string name="label_device_token">设备令牌（device_token）</string>
+    <string name="hint_device_token">在服务端 config.json 中查看</string>
+    <string name="label_device_name">设备名称（在群聊中显示）</string>
+    <string name="hint_device_name">例如：我的手机</string>
+    <string name="label_interval">定时上报周期</string>
+    <string name="interval_value">每 %1$d 秒上报一次</string>
+    <string name="toast_bad_url">服务器地址必须以 http:// 或 https:// 开头</string>
+    <string name="toast_bad_token">请填写设备令牌</string>
+    <string name="toast_saved">已保存，服务已重启</string>
+    <string name="toast_need_config">请先在设置中填写服务器地址与设备令牌</string>
+
+    <!-- 服务与通知 -->
+    <string name="channel_name">Mugshot 状态上报</string>
+    <string name="channel_desc">保持与 mugshot-server 的连接并上报设备状态</string>
+    <string name="notif_title">Mugshot 运行中</string>
+    <string name="service_online">已连接，状态上报中</string>
+    <string name="service_connecting">正在连接服务器…</string>
+    <string name="service_error">连接异常，自动重试中</string>
+    <string name="service_offline">未连接</string>
+
+    <!-- 更新 -->
+    <string name="update_check_failed">更新检查失败（网络不可用或仓库未配置）</string>
+    <string name="update_latest">已是最新版本 v%1$s</string>
+    <string name="update_no_apk">发现新版本 %1$s，但 Release 中没有 APK 附件</string>
+    <string name="update_downloading">发现新版本 %1$s，正在下载…</string>
+    <string name="update_failed">更新失败：%1$s</string>
+</resources>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: #0f1420; width: 720px; }
+  .card { padding: 38px; color: #e8ecf4; }
+  .icon { width: 62px; height: 62px; border-radius: 16px; background: rgba(255,99,99,.12); border: 1px solid rgba(255,99,99,.4); display: flex; align-items: center; justify-content: center; font-size: 32px; color: #ff6363; margin-bottom: 18px; }
+  .title { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+  .msg { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 18px 22px; font-size: 16px; line-height: 1.7; color: #c8d0e0; word-break: break-all; white-space: pre-wrap; }
+  .hint { font-size: 14px; color: #8b93a7; margin-top: 16px; line-height: 1.6; }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">!</div>
+  <div class="title">{{ title }}</div>
+  <div class="msg">{{ message }}</div>
+  {{ if hint }}<div class="hint">{{ hint }}</div>{{ /if }}
+  <div class="meta"><span>Mugshot</span><span>{{ time }}</span></div>
+</div>
+</body>
+</html>

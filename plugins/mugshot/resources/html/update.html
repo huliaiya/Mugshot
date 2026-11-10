@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: #0f1420; width: 720px; }
+  .card { padding: 38px; color: #e8ecf4; }
+  .title { font-size: 28px; font-weight: 700; margin-bottom: 14px; }
+  .msg { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 18px 22px; font-size: 16px; line-height: 1.8; color: #c8d0e0; word-break: break-all; white-space: pre-wrap; margin-bottom: 16px; }
+  table.rows { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  table.rows td { padding: 10px 8px; font-size: 15.5px; border-bottom: 1px solid #1f2a44; }
+  table.rows tr:last-child td { border-bottom: none; }
+  table.rows .k { color: #8b93a7; width: 150px; }
+  table.rows .v { color: #e8ecf4; font-weight: 600; }
+  table.rows .v.warn { color: #ffb74d; }
+  .tag { display: inline-block; font-size: 14px; padding: 3px 12px; border-radius: 999px; background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); font-weight: 600; margin-bottom: 16px; }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="title">{{ title }}</div>
+  {{ if confirm }}<div class="tag">等待确认</div>{{ /if }}
+  {{ if message }}<div class="msg">{{ message }}</div>{{ /if }}
+  {{ if rows && rows.length }}
+  <table class="rows">
+    {{ each rows r }}
+    <tr><td class="k">{{ r.label }}</td><td class="v {{ r.cls }}">{{ r.value }}</td></tr>
+    {{ /each }}
+  </table>
+  {{ /if }}
+  <div class="meta"><span>Mugshot</span><span>{{ server }}</span></div>
+</div>
+</body>
+</html>

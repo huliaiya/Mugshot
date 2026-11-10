@@ -1,0 +1,41 @@
+[Unit]
+Description=Mugshot Device Status Server
+Documentation=https://github.com/your-github-username/Mugshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/opt/mugshot/mugshot-server --config /opt/mugshot/config.json
+WorkingDirectory=/opt/mugshot
+User=mugshot
+Group=mugshot
+
+# ---- 保活策略 ----
+# 进程无论正常退出、崩溃、被信号终止都自动拉起（推荐常驻服务使用）
+Restart=always
+RestartSec=5
+# 进程存活但卡死时由 watchdog 兜底：应用已内置 sd_notify WATCHDOG=1 心跳，
+# 需要时可取消注释启用。心跳间隔为 WatchdogSec 的一半。
+# WatchdogSec=30
+# 如需每日定时重建进程以防内存缓慢泄漏，可取消注释（到点 systemd 会直接终止并重启）
+# RuntimeMaxSec=24h
+
+# ---- 日志统一走 journald ----
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mugshot-server
+
+# ---- 基本加固 ----
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/mugshot/data
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

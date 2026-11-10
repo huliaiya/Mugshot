@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:id="@+id/privacy_text"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/card_bg"
+            android:padding="16dp"
+            android:textSize="14sp"
+            android:lineSpacingExtra="4dp"
+            android:textColor="@color/text_main"
+            android:scrollbars="vertical" />
+
+        <Button
+            android:id="@+id/btn_agree"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_agree"
+            android:textColor="@color/white" />
+
+        <Button
+            android:id="@+id/btn_disagree"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_disagree"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+    </LinearLayout>
+</ScrollView>

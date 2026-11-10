@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 手机轮廓 + 状态点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7,2 h10 a2,2 0 0 1 2,2 v16 a2,2 0 0 1 -2,2 h-10 a2,2 0 0 1 -2,-2 v-16 a2,2 0 0 1 2,-2 z M7,4 v14 h10 v-14 z M11,20 h2 v-1.5 h-2 z" />
+    <path
+        android:fillColor="#3DD598"
+        android:pathData="M9.5,7.5 a1.5,1.5 0 1 1 0.001,0 z" />
+</vector>

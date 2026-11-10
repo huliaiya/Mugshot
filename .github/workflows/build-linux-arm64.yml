@@ -1,0 +1,113 @@
+# mugshot-server Linux ARM64 构建（适配 Ubuntu 26.04 ARM64 服务器）
+# - push tag v* 时：构建并附加到 GitHub Release（tar.gz + 裸二进制）
+# - 同时打包 Yunzai 插件目录为 mugshot-plugin.tar.gz，供插件更新器下载
+name: build-linux-arm64
+
+on:
+  push:
+    branches: [master, main]
+    paths: ["server/**", "plugins/**", ".github/workflows/build-linux-arm64.yml"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build server (linux/arm64)
+        working-directory: server
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          go vet ./...
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.commit=${GITHUB_SHA::8}" \
+            -o mugshot-server .
+
+      - name: Package server
+        working-directory: server
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          mkdir -p /tmp/pkg/mugshot
+          cp mugshot-server /tmp/pkg/mugshot/
+          cp mugshot-server.service install.sh /tmp/pkg/mugshot/
+          tar -czf "mugshot-server_linux_arm64_${VER}.tar.gz" -C /tmp/pkg mugshot
+          cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
+          cp mugshot-server "../mugshot-server_linux_arm64_${VER}"
+          ls -la ../*.tar.gz ../*arm64*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mugshot-server-linux-arm64
+          path: |
+            mugshot-server_linux_arm64_*.tar.gz
+            mugshot-server_linux_arm64_*
+
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package plugin
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          # 插件更新器按 mugshot-plugin/<内容> 解包，目录名固定
+          mkdir -p /tmp/pkg/mugshot-plugin
+          cp -r plugins/mugshot/. /tmp/pkg/mugshot-plugin/
+          tar -czf "mugshot-plugin_${VER}.tar.gz" -C /tmp/pkg mugshot-plugin
+          ls -la mugshot-plugin_*.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mugshot-plugin
+          path: mugshot-plugin_*.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [server, plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist/
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber --repo "$GITHUB_REPOSITORY"

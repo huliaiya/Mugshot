@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: #0f1420; width: 720px; }
+  .card { padding: 34px 38px; color: #e8ecf4; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .head .title { font-size: 30px; font-weight: 700; }
+  .head .count { font-size: 16px; color: #8b93a7; }
+  .hint { font-size: 15px; color: #8b93a7; margin-bottom: 20px; }
+  .device { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 18px 22px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .device .name { font-size: 21px; font-weight: 700; }
+  .device .model { font-size: 14px; color: #8b93a7; margin-top: 4px; }
+  .device .right { text-align: right; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.on { background: #3dd598; box-shadow: 0 0 8px rgba(61,213,152,.8); }
+  .dot.off { background: #66708a; }
+  .state { font-size: 15px; font-weight: 600; vertical-align: middle; }
+  .state.on { color: #3dd598; }
+  .state.off { color: #8b93a7; }
+  .last { font-size: 13px; color: #66708a; margin-top: 6px; }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div class="title">{{ title }}</div>
+    <div class="count">{{ count }} 台设备 · 在线 {{ onlineCount }}</div>
+  </div>
+  <div class="hint">{{ hint }}</div>
+  {{ each devices d }}
+  <div class="device">
+    <div>
+      <div class="name">{{ d.device_name }}</div>
+      <div class="model">{{ d.device_model }} · {{ d.batteryText }}</div>
+    </div>
+    <div class="right">
+      <div class="{{ d.online ? "state on" : "state off" }}"><span class="{{ d.online ? "dot on" : "dot off" }}"></span>{{ d.online ? "在线" : "离线" }}</div>
+      <div class="last">{{ d.appText }} · {{ d.last_report_short }}</div>
+    </div>
+  </div>
+  {{ /each }}
+  <div class="meta"><span>Mugshot · 设备列表</span><span>{{ server }}</span></div>
+</div>
+</body>
+</html>
