@@ -94,6 +94,7 @@ class SettingsFragment : Fragment() {
         Prefs.deviceToken = token
         Prefs.deviceName = name
         Prefs.reportIntervalSec = 30 + sbInterval.progress * 30
+        LogStore.log("config", "配置已保存 url=$url interval=${Prefs.reportIntervalSec}s")
 
         // 重启服务应用新配置
         if (Prefs.consent) {

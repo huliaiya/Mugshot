@@ -1,8 +1,9 @@
 // mugshot-gui 是 Mugshot 服务端的桌面管理程序：
-// 展示运行状态与设备列表，管理 Token、启停服务、查看日志。
+// 展示运行状态与设备列表，管理 Token、启停服务、查看最近 24 小时运行日志。
 package main
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -86,17 +87,23 @@ func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+const tabOverview = "概览"
+const tabRunLog = "运行日志"
+const tabAccess = "接入信息"
+
 type ui struct {
-	win      fyne.Window
-	statusDot *widget.RichText
-	statusLn  *widget.Label
-	devLine   *widget.Label
-	devList   *fyne.Container
-	tokenDev  *widget.Entry
-	tokenPlug *widget.Entry
-	urlEntry  *widget.Entry
-	ctlResult *widget.Label
-	verLabel  *widget.Label
+	win        fyne.Window
+	statusDot  *widget.RichText
+	statusLn   *widget.Label
+	devSummary *widget.Label
+	devList    *fyne.Container
+	urlEntry   *widget.Entry
+	tokenDev   *widget.Entry
+	ctlResult  *widget.Label
+	verLabel   *widget.Label
+	logView    *widget.Entry
+	logHint    *widget.Label
+	tabs       *container.AppTabs
 
 	mu   sync.Mutex
 	conf guiConf
@@ -116,7 +123,7 @@ func main() {
 	u.cli = u.newClient()
 
 	w := a.NewWindow("Mugshot 服务端")
-	w.Resize(fyne.NewSize(580, 700))
+	w.Resize(fyne.NewSize(620, 720))
 	u.win = w
 	w.SetContent(u.build())
 
@@ -129,7 +136,7 @@ func main() {
 					u.applyConf(c)
 					u.ctlResult.SetText("已从系统配置读取连接信息")
 				} else {
-					u.ctlResult.SetText("未获取到配置，请在下方手动填写地址与 Token")
+					u.ctlResult.SetText("未获取到配置，请在\"接入信息\"页手动填写地址与 Token")
 				}
 			})
 		}()
@@ -167,38 +174,10 @@ func dotStyle(on bool) widget.RichTextStyle {
 }
 
 func (u *ui) build() fyne.CanvasObject {
+	// ---- 概览页 ----
 	u.statusDot = widget.NewRichText(&widget.TextSegment{Text: "● 检查中", Style: widget.RichTextStyle{Inline: true}})
 	u.statusLn = widget.NewLabel("—")
 	u.statusLn.Wrapping = fyne.TextWrapWord
-	u.devLine = widget.NewLabel("—")
-	u.devList = container.NewVBox()
-
-	tokenNote := widget.NewLabel("设备与插件共用连接地址，Token 即插件配置中的 plugin_token。")
-	tokenNote.Wrapping = fyne.TextWrapWord
-	tokenNote.TextStyle = fyne.TextStyle{Italic: true}
-
-	u.urlEntry = widget.NewEntry()
-	u.urlEntry.SetPlaceHolder("http://127.0.0.1:8080")
-	u.tokenDev = widget.NewEntry()
-	u.tokenDev.SetPlaceHolder("粘贴服务端配置里的 plugin_token")
-
-	saveBtn := widget.NewButton("保存连接信息", func() {
-		c := guiConf{ServerURL: strings.TrimSpace(u.urlEntry.Text), PluginToken: strings.TrimSpace(u.tokenDev.Text)}
-		if c.ServerURL == "" {
-			u.ctlResult.SetText("地址不能为空")
-			return
-		}
-		u.applyConf(c)
-		u.ctlResult.SetText("连接信息已保存")
-	})
-
-	copyToken := widget.NewButton("复制 Token", func() {
-		fyne.CurrentApp().Clipboard().SetContent(strings.TrimSpace(u.tokenDev.Text))
-	})
-
-	u.ctlResult = widget.NewLabel("")
-	u.ctlResult.Wrapping = fyne.TextWrapWord
-	u.verLabel = widget.NewLabel("")
 
 	svcBtn := func(text, action string) *widget.Button {
 		return widget.NewButton(text, func() {
@@ -214,7 +193,61 @@ func (u *ui) build() fyne.CanvasObject {
 		})
 	}
 
-	logBtn := widget.NewButton("查看服务日志", func() { u.showLogs() })
+	statusCard := widget.NewCard("服务状态", "", container.NewVBox(
+		container.NewVBox(u.statusDot, u.statusLn),
+		container.NewHBox(svcBtn("重启服务", "restart"), svcBtn("停止服务", "stop"), svcBtn("启动服务", "start")),
+	))
+
+	u.devSummary = widget.NewLabel("设备：—")
+	u.devSummary.Wrapping = fyne.TextWrapWord
+	u.devList = container.NewVBox()
+	devicesCard := widget.NewCard("设备", "", container.NewVBox(u.devSummary, u.devList))
+
+	overview := container.NewVScroll(container.NewVBox(statusCard, devicesCard))
+
+	// ---- 运行日志页（页内展示，切换到本页即加载最新） ----
+	u.logHint = widget.NewLabel("显示服务最近 24 小时日志；切换到本页时自动加载最新内容。")
+	u.logHint.Wrapping = fyne.TextWrapWord
+	logRefresh := widget.NewButton("刷新", func() { u.refreshRunLog() })
+	u.logView = widget.NewMultiLineEntry()
+	u.logView.Wrapping = fyne.TextWrapBreak
+	u.logView.TextStyle = fyne.TextStyle{Monospace: true}
+	u.logView.SetText("切换到本页时自动加载")
+	logPage := container.NewBorder(
+		container.NewVBox(
+			widget.NewCard("运行日志", "", container.NewVBox(u.logHint, container.NewHBox(logRefresh))),
+		),
+		nil, nil, nil,
+		container.NewScroll(u.logView),
+	)
+
+	// ---- 接入信息页 ----
+	note := widget.NewLabel("设备与插件共用连接地址，Token 即插件配置中的 plugin_token。")
+	note.Wrapping = fyne.TextWrapWord
+	note.TextStyle = fyne.TextStyle{Italic: true}
+
+	u.urlEntry = widget.NewEntry()
+	u.urlEntry.SetPlaceHolder("http://127.0.0.1:8080")
+	u.tokenDev = widget.NewEntry()
+	u.tokenDev.SetPlaceHolder("粘贴服务端配置里的 plugin_token")
+
+	saveBtn := widget.NewButton("保存连接信息", func() {
+		c := guiConf{ServerURL: strings.TrimSpace(u.urlEntry.Text), PluginToken: strings.TrimSpace(u.tokenDev.Text)}
+		if c.ServerURL == "" {
+			u.ctlResult.SetText("地址不能为空")
+			return
+		}
+		u.applyConf(c)
+		u.ctlResult.SetText("连接信息已保存")
+	})
+	copyToken := widget.NewButton("复制 Token", func() {
+		fyne.CurrentApp().Clipboard().SetContent(strings.TrimSpace(u.tokenDev.Text))
+	})
+
+	u.ctlResult = widget.NewLabel("")
+	u.ctlResult.Wrapping = fyne.TextWrapWord
+	u.verLabel = widget.NewLabel("")
+
 	verBtn := widget.NewButton("检查更新", func() { u.checkUpdate() })
 	updBtn := widget.NewButton("立即更新", func() {
 		if strings.TrimSpace(u.tokenDev.Text) == "" {
@@ -230,28 +263,31 @@ func (u *ui) build() fyne.CanvasObject {
 			}, u.win).Show()
 	})
 
-	header := widget.NewCard("服务状态", "", container.NewVBox(
-		container.NewHBox(u.statusDot, u.statusLn),
-		u.devLine,
-		container.NewHBox(svcBtn("重启服务", "restart"), svcBtn("停止服务", "stop"), svcBtn("启动服务", "start")),
-	))
-
-	tokens := widget.NewCard("接入信息", "", container.NewVBox(
-		tokenNote,
-		container.NewHBox(widget.NewLabel("地址"), u.urlEntry),
+	tokenCard := widget.NewCard("接入信息", "", container.NewVBox(
+		note,
+		container.NewHBox(widget.NewLabel("地址"), container.NewGridWithColumns(1), u.urlEntry),
 		container.NewHBox(widget.NewLabel("Token"), u.tokenDev, copyToken),
 		saveBtn,
 	))
-
-	devices := widget.NewCard("设备", "", container.NewVBox(u.devLine, u.devList))
-
-	ctl := widget.NewCard("维护", "", container.NewVBox(
-		container.NewHBox(logBtn, verBtn, updBtn),
+	maintCard := widget.NewCard("更新", "", container.NewVBox(
+		container.NewHBox(verBtn, updBtn),
 		u.verLabel,
 		u.ctlResult,
 	))
+	tokenPage := container.NewVScroll(container.NewVBox(tokenCard, maintCard))
 
-	return container.NewVScroll(container.NewVBox(header, devices, tokens, ctl))
+	u.tabs = container.NewAppTabs(
+		container.NewTabItem(tabOverview, overview),
+		container.NewTabItem(tabRunLog, logPage),
+		container.NewTabItem(tabAccess, tokenPage),
+	)
+	// 每次切到运行日志页都重新加载最新日志
+	u.tabs.OnSelected = func(t *container.TabItem) {
+		if t.Text == tabRunLog {
+			u.refreshRunLog()
+		}
+	}
+	return u.tabs
 }
 
 func (u *ui) startPolling() {
@@ -308,17 +344,20 @@ func (u *ui) refreshDevices() {
 	}
 	rows := d.Devices
 	fyne.Do(func() {
+		u.devSummary.SetText(fmt.Sprintf("共 %d 台设备", len(rows)))
 		u.devList.Objects = nil
 		for _, r := range rows {
 			name := r.DeviceName
 			if r.Model != "" {
 				name += "（" + r.Model + "）"
 			}
-			u.devList.Add(container.NewHBox(
-				widget.NewRichText(&widget.TextSegment{Text: "●", Style: dotStyle(r.Online)}),
-				widget.NewLabel(fmt.Sprintf("%s · 最近上报 %s · 累计 %d 次",
-					name, relTime(r.LastReportAt), r.ReportCount)),
-			))
+			line := widget.NewRichText(
+				&widget.TextSegment{Text: "● ", Style: dotStyle(r.Online)},
+				&widget.TextSegment{Text: fmt.Sprintf("%s · 最近上报 %s · 累计 %d 次",
+					name, relTime(r.LastReportAt), r.ReportCount), Style: widget.RichTextStyle{Inline: true}},
+			)
+			line.Wrapping = fyne.TextWrapWord
+			u.devList.Add(line)
 		}
 		u.devList.Refresh()
 	})
@@ -398,29 +437,40 @@ func (u *ui) doUpdate() {
 	fyne.Do(func() { u.verLabel.SetText("等待服务重启超时，请稍后点击\"检查更新\"确认") })
 }
 
-func (u *ui) showLogs() {
-	entry := widget.NewMultiLineEntry()
-	entry.Wrapping = fyne.TextWrapBreak
-	logWin := fyne.CurrentApp().NewWindow("mugshot-server 日志")
-	logWin.Resize(fyne.NewSize(720, 520))
-	logWin.SetContent(container.NewScroll(entry))
-	logWin.Show()
-
+// refreshRunLog 重新加载最近 24 小时的服务日志（journalctl）。
+func (u *ui) refreshRunLog() {
+	u.logView.SetText("正在加载日志……")
 	go func() {
-		out, err := exec.Command("journalctl", "-u", "mugshot-server", "-n", "300", "--no-pager").Output()
-		if err != nil || len(out) == 0 {
-			out, err = exec.Command("pkexec", "journalctl", "-u", "mugshot-server", "-n", "300", "--no-pager").Output()
-		}
-		text := strings.TrimRight(string(out), "\n")
-		if text == "" {
+		text, err := serverLogs()
+		fyne.Do(func() {
 			if err != nil {
-				text = "无法读取日志：" + err.Error()
+				u.logView.SetText("读取日志失败：" + err.Error() +
+					"\n\n提示：把当前用户加入日志组后无需授权即可查看：\n  sudo usermod -aG systemd-journal $USER\n然后注销重新登录。")
+			} else if strings.TrimSpace(text) == "" {
+				u.logView.SetText("最近 24 小时没有日志")
 			} else {
-				text = "暂无日志"
+				u.logView.SetText(text)
 			}
-		}
-		fyne.Do(func() { entry.SetText(text) })
+		})
 	}()
+}
+
+// serverLogs 优先直接读 journal（用户在 systemd-journal/adm 组内即可），
+// 无权限时回退 pkexec 授权读取；两者都带超时，避免界面卡在授权等待。
+func serverLogs() (string, error) {
+	args := []string{"-u", "mugshot-server", "--since", "-24 hours", "--no-pager", "-n", "3000"}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "journalctl", args...).Output(); err == nil {
+		return string(out), nil
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel2()
+	out, err := exec.CommandContext(ctx2, "pkexec", append([]string{"journalctl"}, args...)...).Output()
+	if err != nil {
+		return "", fmt.Errorf("journalctl 不可用（%v）", err)
+	}
+	return string(out), nil
 }
 
 func fmtUptime(sec int64) string {

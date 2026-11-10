@@ -6,7 +6,7 @@
 
 | 组件 | 目录 | 说明 |
 | --- | --- | --- |
-| Mugshot（Android 上报端） | `android/` | Kotlin 应用，采集前台应用、屏幕状态、电量、充电、网络类型，通过 WebSocket 定时上报，并响应服务端按需上报指令 |
+| Mugshot（Android 上报端） | `android/` | Kotlin 应用，采集前台应用、屏幕状态、电量、充电、网络类型，通过 WebSocket 定时上报，并响应服务端按需上报指令；内置"运行日志"页可查看最近 24 小时的运行记录 |
 | mugshot-server（Linux 服务端） | `server/` | Go 编写，运行在 Ubuntu 26.04 ARM64（也兼容 x86_64），接收多设备上报、维护设备在线状态表、提供 HTTP 查询 API 与 WebSocket 长连接、支持向设备下发 `request_report` 按需上报指令 |
 | Mugshot（TRSS-Yunzai 插件） | `plugins/mugshot/` | ESM 插件，连接服务端，接收 QQ 群指令，渲染状态卡片图片并通过 QQBot 按钮交互 |
 

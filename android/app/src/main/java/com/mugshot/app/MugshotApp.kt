@@ -12,6 +12,8 @@ class MugshotApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        LogStore.init(this)
+        LogStore.log("app", "应用启动")
         applyTheme()
     }
 

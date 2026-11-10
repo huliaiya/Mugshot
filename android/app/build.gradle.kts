@@ -11,7 +11,7 @@ android {
         applicationId = "com.Mugshot.huli"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
+        versionCode = 7
 
         // 版本号 = 构建时的 Git 短哈希（CI 传 -PgitHash=<sha8>，本地默认 dev）
         val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"

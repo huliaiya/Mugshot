@@ -50,8 +50,15 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = conn.responseCode
             conn.disconnect()
-            if (code in 200..299) Result.success() else Result.retry()
-        } catch (_: Exception) {
+            if (code in 200..299) {
+                LogStore.log("worker", "HTTP 兜底上报成功")
+                Result.success()
+            } else {
+                LogStore.log("worker", "HTTP 兜底上报失败 HTTP $code，等待重试")
+                Result.retry()
+            }
+        } catch (e: Exception) {
+            LogStore.log("worker", "HTTP 兜底上报异常：" + (e.message ?: "未知错误"))
             Result.retry()
         }
     }

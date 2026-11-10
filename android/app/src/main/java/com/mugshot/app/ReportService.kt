@@ -63,6 +63,7 @@ class ReportService : Service(), WsClient.Listener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            LogStore.log("service", "收到停止指令")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -71,6 +72,7 @@ class ReportService : Service(), WsClient.Listener {
             stopSelf()
             return START_NOT_STICKY
         }
+        LogStore.log("service", "上报服务启动")
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_connecting)))
 
         wsClient?.stop()
@@ -83,6 +85,7 @@ class ReportService : Service(), WsClient.Listener {
     }
 
     override fun onDestroy() {
+        LogStore.log("service", "上报服务停止")
         wsClient?.stop()
         wsClient = null
         isRunning = false
@@ -100,10 +103,12 @@ class ReportService : Service(), WsClient.Listener {
             WsClient.STATE_ERROR -> getString(R.string.service_error)
             else -> getString(R.string.service_offline)
         }
+        LogStore.log("state", text)
         updateNotification(text)
     }
 
     override fun onServiceDegraded(reason: String) {
+        LogStore.log("service", reason)
         updateNotification(reason)
     }
 

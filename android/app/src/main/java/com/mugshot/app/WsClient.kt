@@ -56,6 +56,7 @@ class WsClient(
 
     fun start() {
         if (!Prefs.isConfigured()) {
+            LogStore.log("ws", "未配置服务器，跳过连接")
             listener?.onStateChanged(STATE_ERROR)
             return
         }
@@ -98,6 +99,7 @@ class WsClient(
                 put("app_version", StatusCollector.appVersion(context))
             }
             webSocket.send(register.toString())
+            LogStore.log("ws", "已连接 " + wsUrl())
             backoffIdx = 0
             startTimers(webSocket)
             setState(STATE_ONLINE)
@@ -108,7 +110,10 @@ class WsClient(
                 val msg = JSONObject(text)
                 when (msg.optString("type")) {
                     "register_ok" -> setState(STATE_ONLINE)
-                    "request_report" -> handleRequestReport(webSocket, msg)
+                    "request_report" -> {
+                        LogStore.log("ws", "收到服务器即时采集请求")
+                        handleRequestReport(webSocket, msg)
+                    }
                 }
             } catch (_: Exception) {
             }
@@ -116,12 +121,14 @@ class WsClient(
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             cancelTimers()
+            LogStore.log("ws", "连接失败：" + (t.message ?: "未知错误"))
             setState(STATE_ERROR)
             scheduleReconnect()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             cancelTimers()
+            LogStore.log("ws", "连接关闭 code=$code reason=$reason")
             setState(STATE_OFFLINE)
             scheduleReconnect()
         }
@@ -193,6 +200,7 @@ class WsClient(
         if (closed) return
         val delay = BACKOFF[backoffIdx.coerceAtMost(BACKOFF.size - 1)]
         backoffIdx = (backoffIdx + 1).coerceAtMost(BACKOFF.size - 1)
+        LogStore.log("ws", "${delay / 1000} 秒后重连")
         main.postDelayed({ connect() }, delay)
     }
 

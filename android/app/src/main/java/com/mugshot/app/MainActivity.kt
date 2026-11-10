@@ -27,6 +27,7 @@ class MainActivity : AppCompatActivity() {
         nav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_home -> switchTo(HomeFragment())
+                R.id.nav_logs -> switchTo(LogsFragment())
                 R.id.nav_settings -> switchTo(SettingsFragment())
                 R.id.nav_about -> switchTo(AboutFragment())
             }
