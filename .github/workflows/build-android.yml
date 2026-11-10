@@ -31,8 +31,10 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          # 关于页"构建版本"注入当前提交短哈希
-          ./gradlew --no-daemon -PgitHash=${GITHUB_SHA::8} assembleRelease
+          # 版本号 = 提交短哈希；更新检查 = 发布 tag（非 tag 构建为 0.0.0）
+          GIT_TAG="${GITHUB_REF_NAME#v}"
+          [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ] || GIT_TAG="0.0.0"
+          ./gradlew --no-daemon -PgitHash=${GITHUB_SHA::8} -PgitTag="$GIT_TAG" assembleRelease
 
       - name: Verify APK signature
         working-directory: android

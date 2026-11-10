@@ -29,12 +29,8 @@ object Updater {
 
     data class ReleaseInfo(val tag: String, val notes: String, val apkUrl: String?)
 
-    /** 当前版本名，如 "1.0.0" */
-    fun currentVersion(ctx: Context): String = try {
-        ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "0"
-    } catch (_: Exception) {
-        "0"
-    }
+    /** 当前构建对应的发布版本号（tag 构建注入，dev 构建为 0.0.0），用于更新比较 */
+    fun currentVersion(ctx: Context): String = BuildConfig.GIT_TAG
 
     /** 主源 + 备用源 failover */
     fun checkUpdate(repo: String): ReleaseInfo? {

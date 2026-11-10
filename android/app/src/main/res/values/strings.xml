@@ -96,8 +96,7 @@
     <string name="home_detail_offline">服务未运行，点击"重新测试连接"检查配置</string>
 
     <!-- 关于 -->
-    <string name="about_version_label">构建版本</string>
-    <string name="about_build_version">正式版</string>
+    <string name="about_version_label">版本</string>
     <string name="label_repo">项目仓库</string>
     <string name="label_package">应用包名</string>
 

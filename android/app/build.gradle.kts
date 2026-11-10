@@ -11,12 +11,16 @@ android {
         applicationId = "com.Mugshot.huli"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.0.6"
+        versionCode = 6
 
-        // 关于页展示的"构建版本"= 构建时的 Git 短哈希；CI 传 -PgitHash=<sha8>，本地默认 dev
+        // 版本号 = 构建时的 Git 短哈希（CI 传 -PgitHash=<sha8>，本地默认 dev）
         val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"
+        versionName = gitHash
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
+
+        // 更新检查用的发布版本号（tag 构建传 -PgitTag=<x.y.z>，非 tag 构建为 0.0.0）
+        val gitTag = (project.findProperty("gitTag") as String?)?.takeIf { it.isNotBlank() } ?: "0.0.0"
+        buildConfigField("String", "GIT_TAG", "\"$gitTag\"")
     }
 
     signingConfigs {

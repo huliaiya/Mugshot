@@ -26,9 +26,8 @@ class AboutFragment : Fragment() {
     ): View = inflater.inflate(R.layout.fragment_about, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        // 版本显示构建时的 Git 短哈希（CI 注入 -PgitHash=<sha8>）
+        // 软件版本号 = 构建时的 Git 短哈希（与系统设置-应用信息中显示一致）；更新检查按发布 tag 比较
         view.findViewById<TextView>(R.id.tv_version).text = BuildConfig.GIT_HASH
-        view.findViewById<TextView>(R.id.tv_version_name).text = "v${Updater.currentVersion(requireContext())} · ${getString(R.string.about_build_version)}"
 
         setRow(view, R.id.row_repo, R.string.label_repo, Updater.DEFAULT_REPO)
         setRow(view, R.id.row_pkg, R.string.label_package, requireContext().packageName)
