@@ -28,7 +28,7 @@ sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
 
 - 安装服务端 `/usr/bin/mugshot-server`、图形面板 `mugshot-gui`、终端菜单 `mugshot-ctl`
 - 应用菜单注册两个入口：
-  - **"Mugshot 服务端"**（图形界面）：运行状态 / 在线设备 / Token 查看复制 / 启动停止重启 / 查看日志 / 检查更新。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息
+  - **"Mugshot 服务端"**（图形界面）：运行状态 / 在线设备 / Token 查看复制 / 启动停止重启 / 查看日志 / 检查更新与一键更新。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息
   - **"Mugshot 终端管理"**（终端菜单 mugshot-ctl）：无桌面环境或 SSH 场景使用，含编辑配置与主题外观深浅色
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`

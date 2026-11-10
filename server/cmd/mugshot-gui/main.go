@@ -16,6 +16,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -59,7 +60,15 @@ type client struct {
 }
 
 func (c *client) get(path string, needAuth bool) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(c.base, "/")+path, nil)
+	return c.do(http.MethodGet, path, needAuth)
+}
+
+func (c *client) post(path string, needAuth bool) ([]byte, error) {
+	return c.do(http.MethodPost, path, needAuth)
+}
+
+func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
+	req, err := http.NewRequest(method, strings.TrimRight(c.base, "/")+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +216,19 @@ func (u *ui) build() fyne.CanvasObject {
 
 	logBtn := widget.NewButton("查看服务日志", func() { u.showLogs() })
 	verBtn := widget.NewButton("检查更新", func() { u.checkUpdate() })
+	updBtn := widget.NewButton("立即更新", func() {
+		if strings.TrimSpace(u.tokenDev.Text) == "" {
+			u.verLabel.SetText("未配置 Token，无法触发更新")
+			return
+		}
+		dialog.NewConfirm("立即更新",
+			"将从 GitHub 下载最新版本并自动重启服务，期间服务会短暂中断。\n要继续吗？",
+			func(ok bool) {
+				if ok {
+					go u.doUpdate()
+				}
+			}, u.win).Show()
+	})
 
 	header := widget.NewCard("服务状态", "", container.NewVBox(
 		container.NewHBox(u.statusDot, u.statusLn),
@@ -224,7 +246,7 @@ func (u *ui) build() fyne.CanvasObject {
 	devices := widget.NewCard("设备", "", container.NewVBox(u.devLine, u.devList))
 
 	ctl := widget.NewCard("维护", "", container.NewVBox(
-		container.NewHBox(logBtn, verBtn),
+		container.NewHBox(logBtn, verBtn, updBtn),
 		u.verLabel,
 		u.ctlResult,
 	))
@@ -315,10 +337,65 @@ func (u *ui) checkUpdate() {
 		return
 	}
 	if v.Update {
-		u.verLabel.SetText(fmt.Sprintf("当前 %s，最新发布 %s，可执行 mugshot-server --update", v.Version, v.Latest))
+		u.verLabel.SetText(fmt.Sprintf("当前 %s，最新发布 %s，点击\"立即更新\"升级", v.Version, v.Latest))
 	} else {
 		u.verLabel.SetText(fmt.Sprintf("当前 %s 已是最新", v.Version))
 	}
+}
+
+// doUpdate 走服务端 POST /admin/update 自更新链路：
+// 服务端后台下载新版本替换自身二进制后退出，systemd Restart=always 拉起新版本。
+func (u *ui) doUpdate() {
+	cli := u.cli
+	fyne.Do(func() { u.verLabel.SetText("正在请求更新……") })
+
+	data, err := cli.post("/admin/update", true)
+	if err != nil {
+		fyne.Do(func() { u.verLabel.SetText("更新请求失败：" + err.Error()) })
+		return
+	}
+	var resp struct {
+		OK      bool   `json:"ok"`
+		Updated bool   `json:"updated"`
+		Current string `json:"current"`
+		Note    string `json:"note"`
+	}
+	if json.Unmarshal(data, &resp) != nil || !resp.OK {
+		note := resp.Note
+		if note == "" {
+			note = "响应格式异常"
+		}
+		fyne.Do(func() { u.verLabel.SetText("更新失败：" + note) })
+		return
+	}
+	if !resp.Updated {
+		fyne.Do(func() { u.verLabel.SetText(resp.Note) })
+		return
+	}
+	fyne.Do(func() { u.verLabel.SetText("服务端正在后台下载新版本并重启，请稍候……") })
+
+	// 轮询 /health：服务短暂离线（重启中）后应以新版本回来
+	for i := 0; i < 30; i++ {
+		time.Sleep(2 * time.Second)
+		data, err := cli.get("/health", false)
+		if err != nil {
+			continue
+		}
+		var h healthResp
+		if json.Unmarshal(data, &h) != nil || !h.OK {
+			continue
+		}
+		// 版本变化即成功；连续 8 秒仍是旧版本则视为已是该版本（如重新构建）
+		if h.Version != resp.Current || i >= 4 {
+			ver := h.Version
+			fyne.Do(func() {
+				u.verLabel.SetText("更新完成，服务已恢复，当前版本 " + ver)
+				u.refreshHealth()
+			})
+			return
+		}
+	}
+	fyne.Do(func() { u.verLabel.SetText("等待服务重启超时，请稍后点击\"检查更新\"确认") })
 }
 
 func (u *ui) showLogs() {
