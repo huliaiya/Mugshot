@@ -131,6 +131,11 @@ func main() {
 	w.Resize(fyne.NewSize(620, 720))
 	u.win = w
 	w.SetContent(u.build())
+	// 已有连接配置时回填显示，方便查看与复制
+	if u.conf.ServerURL != "" {
+		u.urlEntry.SetText(u.conf.ServerURL)
+		u.tokenDev.SetText(u.conf.PluginToken)
+	}
 
 	// 首次启动无配置时，尝试通过 polkit 授权读取服务端配置。
 	if u.conf.ServerURL == "" {
@@ -286,7 +291,7 @@ func (u *ui) build() fyne.CanvasObject {
 	tokenCard := widget.NewCard("接入信息", "", container.NewVBox(
 		note,
 		container.NewBorder(nil, nil, widget.NewLabel("地址"), nil, u.urlEntry),
-		container.NewBorder(nil, nil, widget.NewLabel("Token"), nil, container.NewHBox(u.tokenDev, copyToken)),
+		container.NewBorder(nil, nil, widget.NewLabel("Token"), copyToken, u.tokenDev),
 		saveBtn,
 	))
 	maintCard := widget.NewCard("更新", "", container.NewVBox(
