@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -118,12 +119,24 @@ type ui struct {
 }
 
 func main() {
+	// 触控终端等设备的 EDID 常虚标 DPI，Fyne 自动缩放会把界面放得过大；
+	// 默认固定 1 倍缩放，确有放大需求的用户可用 FYNE_SCALE 显式设置。
+	if os.Getenv("FYNE_DISABLE_DPI_DETECTION") == "" {
+		os.Setenv("FYNE_DISABLE_DPI_DETECTION", "true")
+	}
+	if os.Getenv("FYNE_SCALE") == "" {
+		os.Setenv("FYNE_SCALE", "1")
+	}
 	a := app.NewWithID("com.mugshot.server")
 	a.SetIcon(fyne.NewStaticResource("mugshot.svg", iconSVG))
 
 	u := &ui{quit: make(chan struct{})}
 	if c, ok := loadConf(); ok {
 		u.conf = c
+	}
+	if u.conf.ServerURL == "" {
+		// 无配置时默认连接本机服务，保证首次启动界面可用
+		u.conf.ServerURL = "http://127.0.0.1:8080"
 	}
 	u.cli = u.newClient()
 
@@ -132,13 +145,13 @@ func main() {
 	u.win = w
 	w.SetContent(u.build())
 	// 已有连接配置时回填显示，方便查看与复制
-	if u.conf.ServerURL != "" {
-		u.urlEntry.SetText(u.conf.ServerURL)
+	u.urlEntry.SetText(u.conf.ServerURL)
+	if u.conf.PluginToken != "" {
 		u.tokenDev.SetText(u.conf.PluginToken)
 	}
 
-	// 首次启动无配置时，尝试通过 polkit 授权读取服务端配置。
-	if u.conf.ServerURL == "" {
+	// 缺少 Token（首次启动或配置被清空）时，尝试通过 polkit 授权读取服务端配置。
+	if u.conf.PluginToken == "" {
 		go func() {
 			c, err := fetchSystemConf()
 			fyne.Do(func() {
@@ -226,7 +239,7 @@ func (u *ui) build() fyne.CanvasObject {
 	u.devList = container.NewVBox()
 	devicesCard := widget.NewCard("设备", "", container.NewVBox(u.devSummary, u.devList))
 
-	overview := container.NewVScroll(container.NewVBox(statusCard, devicesCard))
+	overview := newDragScroll(container.NewVBox(statusCard, devicesCard))
 
 	// ---- 运行日志页（页内展示，切换到本页即加载最新） ----
 	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志（最多 500 行，完整历史可用 journalctl 查看）；切换到本页时自动加载最新内容。")
@@ -243,7 +256,7 @@ func (u *ui) build() fyne.CanvasObject {
 			widget.NewCard("运行日志", "", container.NewVBox(u.logHint, container.NewHBox(u.logModeBtn, logRefresh))),
 		),
 		nil, nil, nil,
-		container.NewScroll(u.logView),
+		newDragScroll(u.logView),
 	)
 
 	// ---- 接入信息页 ----
@@ -299,7 +312,7 @@ func (u *ui) build() fyne.CanvasObject {
 		u.verLabel,
 		u.ctlResult,
 	))
-	tokenPage := container.NewVScroll(container.NewVBox(tokenCard, maintCard))
+	tokenPage := newDragScroll(container.NewVBox(tokenCard, maintCard))
 
 	u.tabs = container.NewAppTabs(
 		container.NewTabItem(tabOverview, overview),
