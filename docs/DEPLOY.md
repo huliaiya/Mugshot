@@ -46,6 +46,8 @@ curl http://127.0.0.1:8080/health        # 验证服务在跑
 
 升级：下载新 .deb 再次 `apt install ./...` 即可，配置与数据自动保留。彻底卸载：`sudo apt purge mugshot-server`（配置/数据需按提示手动删除）。
 
+> v1.0.18 修复了 GUI"设置"页保存提示 HTTP 500 的问题（systemd 单元未放行 `/etc/mugshot`，且目录归属不是服务用户）。升级后 postinst 会自动修正权限并重启服务；如仍失败，执行 `sudo systemctl daemon-reload && sudo systemctl restart mugshot-server`。
+
 ### 1.2 方式二：install.sh 脚本安装
 
 从 GitHub Release 下载 `mugshot-server_linux_arm64_<版本>.tar.gz` 并解压，然后：
@@ -239,3 +241,4 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 | 回复无图片 | Yunzai 渲染器未配置（puppeteer），检查 `config/renderer.yaml` |
 | 按钮不显示 | 仅 QQBot 适配器支持按钮，其他协议端正常降级 |
 | 更新检查失败 | `github_repo` 未改成实际仓库，或服务器无法访问 GitHub（配置 `github_mirror`） |
+| GUI"设置"页保存失败（HTTP 500） | 服务用户没有写 `/etc/mugshot` 的权限：先升级到 v1.0.18+（单元增加 `ReadWritePaths=/etc/mugshot`，postinst 会把目录归属改为 `mugshot`）再 `sudo systemctl restart mugshot-server`；v1.0.18 起目录不可写时自动回退为原地覆写，日志会给出具体原因（`journalctl -u mugshot-server | grep 保存设置失败`） |

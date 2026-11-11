@@ -98,9 +98,24 @@ func (c *client) postJSON(path string, body any) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, httpError(resp.StatusCode, out)
 	}
 	return out, nil
+}
+
+// httpError 把服务端返回的 JSON 错误信息带出来，便于界面直接显示失败原因。
+func httpError(code int, body []byte) error {
+	msg := strings.TrimSpace(string(body))
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) == nil && payload.Error != "" {
+		msg = payload.Error
+	}
+	if len(msg) > 160 {
+		msg = msg[:160] + "…"
+	}
+	return fmt.Errorf("HTTP %d: %s", code, msg)
 }
 
 func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
@@ -116,10 +131,14 @@ func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
-	return io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, httpError(resp.StatusCode, out)
+	}
+	return out, nil
 }
 
 const tabOverview = "概览"

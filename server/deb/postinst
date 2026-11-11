@@ -18,8 +18,8 @@ fi
 
 # 2) 配置文件（升级时保留既有配置与 token；首次安装生成模板，
 #    空 token 由服务端首次启动时自动生成随机值并写回）
+mkdir -p /etc/mugshot
 if [ ! -f /etc/mugshot/config.json ]; then
-  mkdir -p /etc/mugshot
   cat > /etc/mugshot/config.json <<'EOF'
 {
   "listen": ":8080",
@@ -34,9 +34,13 @@ if [ ! -f /etc/mugshot/config.json ]; then
   "update_auto_check": true
 }
 EOF
-  chown "$SERVICE_USER:$SERVICE_USER" /etc/mugshot/config.json
   chmod 600 /etc/mugshot/config.json
 fi
+# 配置目录归属服务用户：GUI 修改设置时需要在该目录写入临时文件再原子替换
+chown "$SERVICE_USER:$SERVICE_USER" /etc/mugshot
+chown "$SERVICE_USER:$SERVICE_USER" /etc/mugshot/config.json
+chmod 750 /etc/mugshot
+chmod 600 /etc/mugshot/config.json
 
 # 3) 数据目录（StateDirectory 已建 /var/lib/mugshot，这里补 data 子目录）
 mkdir -p /var/lib/mugshot/data

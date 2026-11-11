@@ -34,7 +34,8 @@ PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-ReadWritePaths=/opt/mugshot/data
+# 配置目录需可写：GUI 的"设置"页会直接改写 /opt/mugshot/config.json
+ReadWritePaths=/opt/mugshot
 LimitNOFILE=65535
 
 [Install]

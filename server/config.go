@@ -113,11 +113,23 @@ func SaveConfig(cfg *Config, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
+	return writeConfigFile(path, append(data, '\n'))
+}
+
+// writeConfigFile 写配置文件：优先"临时文件 + rename"原子替换；
+// 目录不可写时回退为原地覆写（配置文件本身可写即可），避免只读目录导致设置保存失败。
+func writeConfigFile(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err == nil {
+		if err := os.Rename(tmp, path); err == nil {
+			return nil
+		}
+		_ = os.Remove(tmp)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
 func applyEnv(cfg *Config) {

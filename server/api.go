@@ -362,11 +362,7 @@ func (a *API) persistConfig(p configPatch, rotated *bool) error {
 			return err
 		}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeConfigFile(path, data)
 }
 
 func validPort(listen string) string {

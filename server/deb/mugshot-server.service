@@ -32,7 +32,8 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 StateDirectory=mugshot
-ReadWritePaths=/var/lib/mugshot
+# 配置目录需可写：GUI 的"设置"页会直接改写 /etc/mugshot/config.json
+ReadWritePaths=/var/lib/mugshot /etc/mugshot
 LimitNOFILE=65535
 
 [Install]
