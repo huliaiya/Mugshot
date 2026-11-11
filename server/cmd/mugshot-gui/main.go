@@ -3,8 +3,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +74,35 @@ func (c *client) post(path string, needAuth bool) ([]byte, error) {
 	return c.do(http.MethodPost, path, needAuth)
 }
 
+// postJSON 发送 JSON 请求体并读取响应（鉴权同 do）。
+func (c *client) postJSON(path string, body any) ([]byte, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(c.base, "/")+path, bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.tok != "" {
+		req.Header.Set("Authorization", "Bearer "+c.tok)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return out, nil
+}
+
 func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
 	req, err := http.NewRequest(method, strings.TrimRight(c.base, "/")+path, nil)
 	if err != nil {
@@ -92,6 +125,7 @@ func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
 const tabOverview = "概览"
 const tabRunLog = "运行日志"
 const tabAccess = "接入信息"
+const tabSettings = "设置"
 
 type ui struct {
 	win        fyne.Window
@@ -107,6 +141,17 @@ type ui struct {
 	logHint    *widget.Label
 	logModeBtn *widget.Button
 	tabs       *container.AppTabs
+
+	// 设置页控件
+	setListen    *widget.Entry
+	setToken     *widget.Entry
+	setRate      *widget.Entry
+	setRetention *widget.Entry
+	setOnline    *widget.Entry
+	setMirror    *widget.Entry
+	setAutoChk   *widget.Check
+	setResult    *widget.Label
+	setLoaded    bool
 
 	mu           sync.Mutex
 	conf         guiConf
@@ -150,17 +195,23 @@ func main() {
 		u.tokenDev.SetText(u.conf.PluginToken)
 	}
 
-	// 缺少 Token（首次启动或配置被清空）时，尝试通过 polkit 授权读取服务端配置。
+	// 缺少 Token（首次启动或配置被清空）时，从本机服务端免授权读取。
+	// /local/config 仅接受回环连接：GUI 与服务端同机时静默完成，无授权弹窗。
 	if u.conf.PluginToken == "" {
+		base := u.conf.ServerURL
 		go func() {
-			c, err := fetchSystemConf()
+			tok, err := fetchLocalToken(base)
 			fyne.Do(func() {
-				if err == nil {
-					u.applyConf(c)
-					u.ctlResult.SetText("已从系统配置读取连接信息")
-				} else {
-					u.ctlResult.SetText("未获取到配置，请在\"接入信息\"页手动填写地址与 Token")
+				if err != nil {
+					u.ctlResult.SetText("未自动获取到 Token（仅限与本机服务端同机），请在\"接入信息\"页手动填写")
+					return
 				}
+				u.mu.Lock()
+				c := u.conf
+				u.mu.Unlock()
+				c.PluginToken = tok
+				u.applyConf(c)
+				u.ctlResult.SetText("已自动读取本机服务 Token")
 			})
 		}()
 	}
@@ -187,6 +238,179 @@ func (u *ui) applyConf(c guiConf) {
 	u.urlEntry.SetText(c.ServerURL)
 	u.tokenDev.SetText(c.PluginToken)
 	_ = saveConf(c)
+}
+
+// updateToken 服务端 Token 变化（轮换/修改）后同步本地状态与连接。
+func (u *ui) updateToken(tok string) {
+	u.mu.Lock()
+	u.conf.PluginToken = tok
+	u.cli = &client{base: u.conf.ServerURL, tok: tok, hc: &http.Client{Timeout: 4 * time.Second}}
+	u.mu.Unlock()
+	u.tokenDev.SetText(tok)
+	_ = saveConf(u.conf)
+}
+
+// randomToken 生成 48 位十六进制 Token（与服务端默认格式一致）。
+func randomToken() string {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(buf)
+}
+
+// adminSettingsResp 对应服务端 GET /admin/config 的返回。
+type adminSettingsResp struct {
+	OK               bool   `json:"ok"`
+	Listen           string `json:"listen"`
+	Token            string `json:"token"`
+	ReportRatePerMin int    `json:"report_rate_per_min"`
+	RetentionDays    int    `json:"retention_days"`
+	OnlineTimeoutSec int    `json:"online_timeout_sec"`
+	GithubMirror     string `json:"github_mirror"`
+	UpdateAutoCheck  bool   `json:"update_auto_check"`
+}
+
+// refreshSettings 首次切到设置页时读取服务端当前设置回填表单。
+func (u *ui) refreshSettings() {
+	if u.setLoaded {
+		return
+	}
+	u.setResult.SetText("正在读取服务端设置……")
+	cli := u.cli
+	go func() {
+		data, err := cli.get("/admin/config", true)
+		fyne.Do(func() {
+			if err != nil {
+				u.setResult.SetText("读取设置失败：" + err.Error() + "（需要先在\"接入信息\"页保存 Token）")
+				return
+			}
+			var s adminSettingsResp
+			if json.Unmarshal(data, &s) != nil || !s.OK {
+				u.setResult.SetText("读取设置失败：响应格式异常")
+				return
+			}
+			u.setListen.SetText(s.Listen)
+			u.setToken.SetText(s.Token)
+			u.setRate.SetText(strconv.Itoa(s.ReportRatePerMin))
+			u.setRetention.SetText(strconv.Itoa(s.RetentionDays))
+			u.setOnline.SetText(strconv.Itoa(s.OnlineTimeoutSec))
+			u.setMirror.SetText(s.GithubMirror)
+			u.setAutoChk.SetChecked(s.UpdateAutoCheck)
+			u.setLoaded = true
+			u.setResult.SetText("")
+		})
+	}()
+}
+
+// saveSettingsInt 从表单解析数值项，解析失败返回错误提示。
+func saveSettingsInt(text, name string, lo, hi int) (int, string, bool) {
+	v, err := strconv.Atoi(strings.TrimSpace(text))
+	if err != nil || v < lo || v > hi {
+		return 0, fmt.Sprintf("%s 需为 %d-%d 的数字", name, lo, hi), false
+	}
+	return v, "", true
+}
+
+// saveSettings 把表单提交到 POST /admin/config。
+func (u *ui) saveSettings() {
+	rate, msg, ok := saveSettingsInt(u.setRate.Text, "上报上限", 1, 100000)
+	if !ok {
+		u.setResult.SetText(msg)
+		return
+	}
+	retention, msg, ok := saveSettingsInt(u.setRetention.Text, "数据保留天数", 1, 3650)
+	if !ok {
+		u.setResult.SetText(msg)
+		return
+	}
+	online, msg, ok := saveSettingsInt(u.setOnline.Text, "离线判定秒数", 5, 86400)
+	if !ok {
+		u.setResult.SetText(msg)
+		return
+	}
+	tok := strings.TrimSpace(u.setToken.Text)
+	if len(tok) < 6 || len(tok) > 128 || strings.ContainsAny(tok, " \t\r\n") {
+		u.setResult.SetText("Token 需为 6-128 位且不含空白字符")
+		return
+	}
+	u.setResult.SetText("正在保存……")
+	cli := u.cli
+	req := map[string]any{
+		"listen":              strings.TrimSpace(u.setListen.Text),
+		"token":               tok,
+		"report_rate_per_min": rate,
+		"retention_days":      retention,
+		"online_timeout_sec":  online,
+		"github_mirror":       strings.TrimSpace(u.setMirror.Text),
+		"update_auto_check":   u.setAutoChk.Checked,
+	}
+	go func() {
+		data, err := cli.postJSON("/admin/config", req)
+		fyne.Do(func() {
+			if err != nil {
+				u.setResult.SetText("保存失败：" + err.Error())
+				return
+			}
+			var resp struct {
+				OK              bool   `json:"ok"`
+				RestartRequired bool   `json:"restart_required"`
+				Note            string `json:"note"`
+			}
+			if json.Unmarshal(data, &resp) != nil || !resp.OK {
+				note := resp.Note
+				if note == "" {
+					note = "响应格式异常"
+				}
+				u.setResult.SetText("保存失败：" + note)
+				return
+			}
+			if tok != cli.tok {
+				u.updateToken(tok)
+			}
+			txt := resp.Note
+			if resp.RestartRequired {
+				txt += "，请到概览页点击\"重启服务\""
+			}
+			u.setResult.SetText(txt)
+		})
+	}()
+}
+
+// rotateToken 生成新 Token 并立即在服务端启用：旧 Token 立刻失效，
+// App 与插件需要同步填入新 Token。
+func (u *ui) rotateToken() {
+	tok := randomToken()
+	if tok == "" {
+		u.setResult.SetText("生成 Token 失败，请重试")
+		return
+	}
+	u.setResult.SetText("正在生成新 Token……")
+	cli := u.cli
+	go func() {
+		data, err := cli.postJSON("/admin/config", map[string]any{"token": tok})
+		fyne.Do(func() {
+			if err != nil {
+				u.setResult.SetText("生成失败：" + err.Error())
+				return
+			}
+			var resp struct {
+				OK   bool   `json:"ok"`
+				Note string `json:"note"`
+			}
+			if json.Unmarshal(data, &resp) != nil || !resp.OK {
+				note := resp.Note
+				if note == "" {
+					note = "响应格式异常"
+				}
+				u.setResult.SetText("生成失败：" + note)
+				return
+			}
+			u.setToken.SetText(tok)
+			u.updateToken(tok)
+			u.setResult.SetText("新 Token 已启用，旧 Token 立即失效，请把新 Token 同步到 App 与插件")
+		})
+	}()
 }
 
 func dotStyle(on bool) widget.RichTextStyle {
@@ -260,14 +484,14 @@ func (u *ui) build() fyne.CanvasObject {
 	)
 
 	// ---- 接入信息页 ----
-	note := widget.NewLabel("设备与插件共用连接地址，Token 即插件配置中的 plugin_token。")
+	note := widget.NewLabel("设备、插件与本管理界面共用同一个 Token；GUI 与服务端同机时会自动读取，可直接复制给 App 和插件。")
 	note.Wrapping = fyne.TextWrapWord
 	note.TextStyle = fyne.TextStyle{Italic: true}
 
 	u.urlEntry = widget.NewEntry()
 	u.urlEntry.SetPlaceHolder("http://127.0.0.1:8080")
 	u.tokenDev = widget.NewEntry()
-	u.tokenDev.SetPlaceHolder("粘贴服务端配置里的 plugin_token")
+	u.tokenDev.SetPlaceHolder("与本机服务端同机时自动读取")
 
 	saveBtn := widget.NewButton("保存连接信息", func() {
 		c := guiConf{ServerURL: strings.TrimSpace(u.urlEntry.Text), PluginToken: strings.TrimSpace(u.tokenDev.Text)}
@@ -314,15 +538,67 @@ func (u *ui) build() fyne.CanvasObject {
 	))
 	tokenPage := newDragScroll(container.NewVBox(tokenCard, maintCard))
 
+	// ---- 设置页（服务端参数，保存在服务端配置文件中） ----
+	setHint := widget.NewLabel("以下设置写入服务端配置文件：\"监听地址\"修改后需在概览页重启服务生效，其余即时生效。\"生成新 Token\"会立即换发新令牌，旧令牌立刻失效，App 与插件需同步更新。数据目录、GitHub 仓库等仍需在 /etc/mugshot/config.json 中修改。")
+	setHint.Wrapping = fyne.TextWrapWord
+	setHint.TextStyle = fyne.TextStyle{Italic: true}
+
+	u.setListen = widget.NewEntry()
+	u.setListen.SetPlaceHolder(":8080")
+	u.setToken = widget.NewEntry()
+	u.setRate = widget.NewEntry()
+	u.setRate.SetPlaceHolder("30")
+	u.setRetention = widget.NewEntry()
+	u.setRetention.SetPlaceHolder("7")
+	u.setOnline = widget.NewEntry()
+	u.setOnline.SetPlaceHolder("120")
+	u.setMirror = widget.NewEntry()
+	u.setMirror.SetPlaceHolder("https://ghfast.top（可留空）")
+	u.setAutoChk = widget.NewCheck("启动时自动检查更新", nil)
+
+	form := widget.NewForm()
+	form.Append("监听地址", u.setListen)
+	form.Append("Token", u.setToken)
+	form.Append("上报上限（次/分钟）", u.setRate)
+	form.Append("数据保留（天）", u.setRetention)
+	form.Append("离线判定（秒）", u.setOnline)
+	form.Append("下载镜像", u.setMirror)
+	form.Append("", u.setAutoChk)
+
+	genTokBtn := widget.NewButton("生成新 Token", func() {
+		u.rotateToken()
+	})
+	setSaveBtn := widget.NewButton("保存设置", func() { u.saveSettings() })
+	setReloadBtn := widget.NewButton("重新读取", func() {
+		u.setLoaded = false
+		u.refreshSettings()
+	})
+
+	u.setResult = widget.NewLabel("")
+	u.setResult.Wrapping = fyne.TextWrapWord
+
+	settingsPage := newDragScroll(container.NewVBox(
+		widget.NewCard("服务端设置", "", container.NewVBox(
+			setHint,
+			form,
+			container.NewHBox(setSaveBtn, genTokBtn, setReloadBtn),
+			u.setResult,
+		)),
+	))
+
 	u.tabs = container.NewAppTabs(
 		container.NewTabItem(tabOverview, overview),
 		container.NewTabItem(tabRunLog, logPage),
 		container.NewTabItem(tabAccess, tokenPage),
+		container.NewTabItem(tabSettings, settingsPage),
 	)
-	// 每次切到运行日志页都重新加载最新日志
+	// 每次切到运行日志页都重新加载最新日志；首次切到设置页时读取当前值
 	u.tabs.OnSelected = func(t *container.TabItem) {
 		if t.Text == tabRunLog {
 			u.refreshRunLog()
+		}
+		if t.Text == tabSettings {
+			u.refreshSettings()
 		}
 	}
 	return u.tabs
