@@ -36,16 +36,16 @@
     <!-- 设置 -->
     <string name="label_server_url">服务器地址（mugshot-server）</string>
     <string name="hint_server_url">http://192.168.1.10:8080</string>
-    <string name="label_device_token">设备令牌（device_token）</string>
-    <string name="hint_device_token">在服务端 config.json 中查看</string>
+    <string name="label_device_token">访问令牌（Token，与插件共用同一个）</string>
+    <string name="hint_device_token">可在服务端 GUI 的“设置”页或“接入信息”页复制</string>
     <string name="label_device_name">设备名称（在群聊中显示）</string>
     <string name="hint_device_name">例如：我的手机</string>
     <string name="label_interval">定时上报周期</string>
     <string name="interval_value">每 %1$d 秒上报一次</string>
     <string name="toast_bad_url">服务器地址必须以 http:// 或 https:// 开头</string>
-    <string name="toast_bad_token">请填写设备令牌</string>
+    <string name="toast_bad_token">请填写 Token</string>
     <string name="toast_saved">已保存，服务已重启</string>
-    <string name="toast_need_config">请先在设置中填写服务器地址与设备令牌</string>
+    <string name="toast_need_config">请先在设置中填写服务器地址与 Token</string>
 
     <!-- 服务与通知 -->
     <string name="channel_name">Mugshot 状态上报</string>

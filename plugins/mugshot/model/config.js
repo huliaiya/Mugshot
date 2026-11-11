@@ -9,7 +9,9 @@ export const GITHUB_REPO_DEFAULT = "huliaiya/Mugshot"
 const DEFAULT = {
   // mugshot-server 地址（含端口），例如 http://192.168.1.10:8080 或 https://mugshot.example.com
   server_url: "http://127.0.0.1:8080",
-  // 服务端 config.json 中的 plugin_token
+  // 统一 Token：服务端 config.json 中的 token，App 与插件共用同一个
+  token: "",
+  // 兼容旧配置的令牌键名（服务端旧版本 config.json 里的 plugin_token）
   plugin_token: "",
   // fresh 查询等待设备按需上报的超时（毫秒），与服务端 fresh_timeout_ms 保持一致或略大
   fresh_timeout_ms: 8000,

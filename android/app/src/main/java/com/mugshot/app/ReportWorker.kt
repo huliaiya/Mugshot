@@ -10,7 +10,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * HTTP 兜底上报 Worker：POST /api/v1/report（Bearer device_token）。
+ * HTTP 兜底上报 Worker：POST /api/v1/report（Bearer Token）。
  * WS 不可用或 Android 15 dataSync 前台服务 6 小时配额耗尽后的降级通道。
  */
 class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {

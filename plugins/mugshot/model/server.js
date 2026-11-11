@@ -26,13 +26,18 @@ class ServerClient {
     return String(config.server_url || "").replace(/\/+$/, "")
   }
 
+  // 统一 Token：优先使用 token，其次兼容旧配置的 plugin_token
+  get token() {
+    return String(config.token || config.plugin_token || "")
+  }
+
   get wsUrl() {
-    return this.baseUrl.replace(/^http/, "ws") + "/ws/plugin?token=" + encodeURIComponent(config.plugin_token || "")
+    return this.baseUrl.replace(/^http/, "ws") + "/ws/plugin?token=" + encodeURIComponent(this.token)
   }
 
   headers(extra = {}) {
     return {
-      Authorization: `Bearer ${config.plugin_token || ""}`,
+      Authorization: `Bearer ${this.token}`,
       "content-type": "application/json",
       ...extra,
     }
@@ -94,8 +99,8 @@ class ServerClient {
 
   async startWs() {
     if (this.closed || this.wsState !== "off") return
-    if (!config.plugin_token) {
-      logger.warn("[Mugshot] 未配置 plugin_token，跳过 WebSocket 订阅（HTTP 查询仍可用）")
+    if (!this.token) {
+      logger.warn("[Mugshot] 未配置 token，跳过 WebSocket 订阅（HTTP 查询仍可用）")
       return
     }
     let WebSocketImpl = globalThis.WebSocket

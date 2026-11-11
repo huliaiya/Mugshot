@@ -42,9 +42,9 @@
 
 ## 快速开始
 
-1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；应用菜单点"Mugshot 服务端"打开图形管理面板（状态/设备/Token/启停/日志），无桌面环境可在终端运行 `mugshot-ctl`，详见 `docs/DEPLOY.md`
-2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与插件 token）
-3. 安装 Mugshot APK（Release 下载，已签名，包名 `com.Mugshot.huli`，可直接安装），同意隐私政策，授予使用情况访问权限，填写服务端地址与设备 token，开启上报
+1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；应用菜单点"Mugshot 服务端"打开图形管理面板（概览/运行日志/接入信息/设置四页，Token 自动显示可复制，设置页可改监听地址、Token、限流、保留天数等），无桌面环境可在终端运行 `mugshot-ctl`，详见 `docs/DEPLOY.md`
+2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与 Token，与 App 共用同一个）
+3. 安装 Mugshot APK（Release 下载，已签名，包名 `com.Mugshot.huli`，可直接安装），同意隐私政策，授予使用情况访问权限，填写服务端地址与 Token，开启上报
 
 详细部署与三端联调配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
@@ -62,7 +62,7 @@
 
 - Android 端仅采集前台应用名称、屏幕状态、电池、网络类型等状态字段，不上传输入内容、屏幕文本、剪贴板等敏感数据；权限用途逐条见 `docs/PRIVACY.md`
 - 首次启动展示隐私政策，用户同意前不采集、不上报任何数据（见 `docs/PRIVACY.md`）
-- 设备端与插件端使用独立 token 鉴权，服务端校验 device_id 与 token 绑定关系
+- App、插件与 GUI 共用同一个 Token 鉴权，服务端校验 device_id 与 token 绑定关系
 - 服务端默认仅保留最近 7 天（可配置）数据；生产环境建议通过反向代理启用 TLS
 
 ## License

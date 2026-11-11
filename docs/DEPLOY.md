@@ -28,19 +28,21 @@ sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
 
 - 安装服务端 `/usr/bin/mugshot-server`、图形面板 `mugshot-gui`、终端工具 `mugshot-ctl`
 - 应用菜单只注册一个入口：
-  - **"Mugshot 服务端"**（图形界面）：三个页签——概览（运行状态 / 在线设备 / 启停重启）、运行日志（默认"只看本次运行"，可一键切换"最近 24 小时"完整历史；重启只影响显示范围，日志文件/journal 原样保留，切到该页自动加载最新，最多显示最近 500 行，无需另开窗口）、接入信息（地址与 Token 查看复制 / 检查更新与一键更新）。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息；查看日志如遇权限提示，可 `sudo usermod -aG systemd-journal $USER` 后重新登录，一劳永逸
+  - **"Mugshot 服务端"**（图形界面）：四个页签——概览（运行状态 / 在线设备 / 启停重启）、运行日志（默认"只看本次运行"，可一键切换"最近 24 小时"完整历史；重启只影响显示范围，日志文件/journal 原样保留，切到该页自动加载最新，最多显示最近 500 行，无需另开窗口）、接入信息（地址与 Token 查看复制 / 检查更新与一键更新）、设置（监听地址、Token、上报上限、数据保留天数、离线判定、下载镜像、自动检查更新；支持保存设置与一键生成新 Token）。GUI 与服务端同机时自动免授权读取服务端 Token 并显示出来，可直接复制给 App 和插件，不需要输入密码或授权弹窗；查看日志如遇权限提示，可 `sudo usermod -aG systemd-journal $USER` 后重新登录，一劳永逸
   - `mugshot-ctl` 终端菜单保留在系统里（无菜单图标），无桌面环境或 SSH 场景在终端直接运行
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
-- 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）
+- 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 token 并写回，App、插件与 GUI 共用同一个 Token）
 
-安装完成后获取手机 App 与插件需要的 token（任选其一）：
+安装完成后获取手机 App 与插件需要的 Token（App、插件、GUI 共用同一个）：
 
 ```bash
-sudo cat /etc/mugshot/config.json        # 直接查看
-# 或打开应用菜单"Mugshot 服务端"，Token 一栏可直接复制
+sudo cat /etc/mugshot/config.json        # 直接查看 token 字段
+# 或打开应用菜单"Mugshot 服务端"，在"接入信息"页或"设置"页直接复制 Token
 curl http://127.0.0.1:8080/health        # 验证服务在跑
 ```
+
+> 旧版本配置文件里的 `device_token` / `plugin_token` 仍然可用，服务端启动时会自动迁移为统一的 `token` 字段（优先取 plugin_token，其次 device_token），无需手工修改。
 
 升级：下载新 .deb 再次 `apt install ./...` 即可，配置与数据自动保留。彻底卸载：`sudo apt purge mugshot-server`（配置/数据需按提示手动删除）。
 
@@ -52,7 +54,7 @@ curl http://127.0.0.1:8080/health        # 验证服务在跑
 sudo ./install.sh
 ```
 
-脚本会：创建 `mugshot` 系统用户、安装到 `/opt/mugshot`、生成 `config.json`（含自动生成的 device_token / plugin_token）、注册并启动 systemd 服务。
+脚本会：创建 `mugshot` 系统用户、安装到 `/opt/mugshot`、生成 `config.json`（含自动生成的 token，App 与插件共用同一个）、注册并启动 systemd 服务。
 
 ### 1.3 方式三：手动部署
 
@@ -68,8 +70,7 @@ sudo cp mugshot-server.service /etc/systemd/system/
 ```json
 {
   "listen": "0.0.0.0:8080",
-  "device_token": "换成长随机串",
-  "plugin_token": "换成另一个长随机串",
+  "token": "换成长随机串",
   "data_dir": "/opt/mugshot/data",
   "retention_days": 7,
   "github_repo": "你的GitHub用户名/Mugshot",
@@ -77,7 +78,7 @@ sudo cp mugshot-server.service /etc/systemd/system/
 }
 ```
 
-> 令牌生成：`openssl rand -hex 24`。device_token 给 App 用，plugin_token 给 Yunzai 插件用，两者必须不同。
+> 令牌生成：`openssl rand -hex 24`。App 与插件填写同一个 token，服务端校验 token 与 device_id 的绑定关系。
 
 启动：
 
@@ -91,7 +92,7 @@ systemctl status mugshot-server
 
 ```bash
 curl -s http://127.0.0.1:8080/health
-curl -s -H "Authorization: Bearer <plugin_token>" http://127.0.0.1:8080/devices
+curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:8080/devices
 ```
 
 ### 1.5 systemd 说明
@@ -118,6 +119,8 @@ mug.example.com {
 ```
 
 App 与插件中的服务器地址相应改为 `https://mug.example.com`。
+
+> 注意：`/local/config` 只允许本机回环访问，用于 GUI 免授权读取 Token；前面挂了反向代理时，该路径的请求来源会变成回环地址，请自行在代理层屏蔽 `/local/config`，避免 Token 被外部读取。
 
 ## 2. 部署 Yunzai 插件
 
@@ -153,7 +156,8 @@ ln -s "$(pwd)/Mugshot/plugins/mugshot" ./mugshot
 
 ```yaml
 server_url: "http://服务器IP:8080"
-plugin_token: "与服务端 plugin_token 一致"
+token: "与服务端同一个 Token（GUI 接入信息页可直接复制）"
+plugin_token: ""        # 兼容旧配置的键名，填了同样生效
 fresh_timeout_ms: 8000      # 实时查询等待设备上报的超时
 fresh_cooldown_ms: 10000    # 同一用户实时查询冷却
 detail_fresh: true          # #mugshot详情 是否默认触发实时
@@ -172,7 +176,7 @@ device_btn_per_row: 5       # 设备选择按钮每行个数（最多 10）
 2. 首启阅读隐私政策并点击"同意并继续"（同意前 App 不发起任何网络请求）。
 3. 底部导航切换到"设置"页，填写：
    - 服务器地址：`http://服务器IP:8080`
-   - 设备令牌：服务端 `device_token`
+   - Token：服务端 GUI 的"接入信息"页或"设置"页可直接复制（与插件共用同一个）
    - 设备名称：群聊中显示的名字
 4. 回到"首页"按提示完成权限引导：
    - **使用情况访问权限**（前台应用采集必需，系统特殊权限，需手动授予）
@@ -229,8 +233,8 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 
 | 现象 | 排查 |
 |------|------|
-| App 一直"连接失败" | 检查 server_url 可达（`curl /health`）、device_token 一致、服务器防火墙放行端口 |
-| 插件日志无 WS 订阅 | `config/mugshot.yaml` 的 plugin_token 与服务端不一致；或 Node < 22 且无 ws 包（`npm ls ws`） |
+| App 一直"连接失败" | 检查 server_url 可达（`curl /health`）、App 内 Token 与服务端一致、服务器防火墙放行端口 |
+| 插件日志无 WS 订阅 | `config/mugshot.yaml` 的 plugin_token 与服务端 token 不一致；或 Node < 22 且无 ws 包（`npm ls ws`） |
 | 查询永远显示 CACHE | 设备未在线/未授予使用情况权限/被厂商杀后台（看 App 权限面板与通知栏） |
 | 回复无图片 | Yunzai 渲染器未配置（puppeteer），检查 `config/renderer.yaml` |
 | 按钮不显示 | 仅 QQBot 适配器支持按钮，其他协议端正常降级 |
