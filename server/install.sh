@@ -36,8 +36,7 @@ if [[ ! -f "$INSTALL_DIR/config.json" ]]; then
 {
   "listen": "${MUGSHOT_LISTEN:-:8080}",
   "data_dir": "$INSTALL_DIR/data",
-  "device_token": "",
-  "plugin_token": "",
+  "token": "",
   "report_rate_per_min": 30,
   "fresh_timeout_ms": 5000,
   "fresh_cooldown_ms": 5000,
@@ -64,4 +63,4 @@ echo "  systemctl status $SERVICE_NAME"
 echo "  journalctl -u $SERVICE_NAME -f"
 echo "  查看自动生成的 token:  sudo cat $INSTALL_DIR/config.json"
 echo "  检查更新:              sudo -u $SERVICE_USER $INSTALL_DIR/mugshot-server --check-update"
-echo "  手动更新:              curl -X POST -H 'Authorization: Bearer <plugin_token>' http://127.0.0.1:8080/admin/update"
+echo "  手动更新:              curl -X POST -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/admin/update"

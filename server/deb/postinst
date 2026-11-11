@@ -24,8 +24,7 @@ if [ ! -f /etc/mugshot/config.json ]; then
 {
   "listen": ":8080",
   "data_dir": "/var/lib/mugshot/data",
-  "device_token": "",
-  "plugin_token": "",
+  "token": "",
   "report_rate_per_min": 30,
   "fresh_timeout_ms": 5000,
   "fresh_cooldown_ms": 5000,

@@ -86,7 +86,7 @@ show_status() {
 
 show_token() {
     echo "$(c "$C_TITLE" "================ 配置内容 ================")"
-    echo "（$(c "$C_ACCENT" "device_token") 填手机 App；$(c "$C_ACCENT" "plugin_token") 填 Yunzai 插件）"
+    echo "（$(c "$C_ACCENT" "token") 一个令牌，手机 App 与 Yunzai 插件共用同一个）"
     echo
     if [ -r "$CFG" ]; then
         cat "$CFG"

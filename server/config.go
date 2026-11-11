@@ -19,20 +19,29 @@ import (
 // Tokens are secrets: if they are not configured, the server generates random
 // ones and persists them into the config file. Logs never print full tokens.
 type Config struct {
-	Listen           string `json:"listen"`              // HTTP/WS listen address
-	DataDir          string `json:"data_dir"`            // persistence directory
-	DeviceToken      string `json:"device_token"`        // token required from Android devices
-	PluginToken      string `json:"plugin_token"`        // token required from the Yunzai plugin
-	ReportRatePerMin int    `json:"report_rate_per_min"` // per-device report rate cap
-	FreshTimeoutMs   int    `json:"fresh_timeout_ms"`    // how long /status?fresh=1 waits for the device
-	FreshCooldownMs  int    `json:"fresh_cooldown_ms"`   // min interval between request_report per device
-	RetentionDays    int    `json:"retention_days"`      // prune devices unseen for this many days
-	OnlineTimeoutSec int    `json:"online_timeout_sec"`  // no data for this long => treat as stale/offline
-	GithubRepo       string `json:"github_repo"`         // "owner/repo" used by the update checker
-	GithubMirror     string `json:"github_mirror"`       // optional download mirror prefix, e.g. https://ghfast.top
-	UpdateAutoCheck  bool   `json:"update_auto_check"`   // check GitHub Releases at startup + daily
-	UpdateAutoApply  bool   `json:"update_auto_apply"`   // dangerous: auto self-update when newer release found
+	Listen  string `json:"listen"`   // HTTP/WS listen address
+	DataDir string `json:"data_dir"` // persistence directory
+	// Token 是 App / 插件 / GUI 共用的唯一令牌。device_token 与 plugin_token
+	// 是历史字段：仅作兼容保留（读取旧配置文件时迁移到 Token，鉴权时仍然接受），
+	// 新配置文件只写 token。
+	Token            string `json:"token"`
+	DeviceToken      string `json:"device_token,omitempty"` // 旧版安卓设备令牌（兼容）
+	PluginToken      string `json:"plugin_token,omitempty"` // 旧版插件令牌（兼容）
+	ReportRatePerMin int    `json:"report_rate_per_min"`    // per-device report rate cap
+	FreshTimeoutMs   int    `json:"fresh_timeout_ms"`       // how long /status?fresh=1 waits for the device
+	FreshCooldownMs  int    `json:"fresh_cooldown_ms"`      // min interval between request_report per device
+	RetentionDays    int    `json:"retention_days"`         // prune devices unseen for this many days
+	OnlineTimeoutSec int    `json:"online_timeout_sec"`     // no data for this long => treat as stale/offline
+	GithubRepo       string `json:"github_repo"`            // "owner/repo" used by the update checker
+	GithubMirror     string `json:"github_mirror"`          // optional download mirror prefix, e.g. https://ghfast.top
+	UpdateAutoCheck  bool   `json:"update_auto_check"`      // check GitHub Releases at startup + daily
+	UpdateAutoApply  bool   `json:"update_auto_apply"`      // dangerous: auto self-update when newer release found
+
+	path string `json:"-"` // resolved config file path (not serialized)
 }
+
+// Path returns the resolved config file path used at load time.
+func (c *Config) Path() string { return c.path }
 
 func DefaultConfig() *Config {
 	return &Config{
@@ -67,20 +76,26 @@ func LoadConfig(explicitPath string) (*Config, error) {
 	} else if explicitPath != "" || os.Getenv("MUGSHOT_CONFIG") != "" {
 		return nil, fmt.Errorf("读取配置文件 %s: %w", path, err)
 	}
+	cfg.path = path
 
 	// environment overrides
 	applyEnv(cfg)
 
+	// 统一 Token：旧配置只写了 device_token / plugin_token 时迁移到 token；
+	// 旧字段原样保留在文件里，鉴权时继续接受，升级后两端无需立刻改配置。
 	changed := false
-	if cfg.DeviceToken == "" {
-		cfg.DeviceToken = randomToken()
-		changed = true
-		logGenerated("device_token")
+	if cfg.Token == "" {
+		if cfg.PluginToken != "" {
+			cfg.Token = cfg.PluginToken
+		} else {
+			cfg.Token = cfg.DeviceToken
+		}
+		changed = cfg.Token != ""
 	}
-	if cfg.PluginToken == "" {
-		cfg.PluginToken = randomToken()
+	if cfg.Token == "" {
+		cfg.Token = randomToken()
 		changed = true
-		logGenerated("plugin_token")
+		logGenerated("token")
 	}
 	if changed {
 		if err := SaveConfig(cfg, path); err != nil {
@@ -131,6 +146,7 @@ func applyEnv(cfg *Config) {
 
 	envStr("MUGSHOT_LISTEN", &cfg.Listen)
 	envStr("MUGSHOT_DATA_DIR", &cfg.DataDir)
+	envStr("MUGSHOT_TOKEN", &cfg.Token)
 	envStr("MUGSHOT_DEVICE_TOKEN", &cfg.DeviceToken)
 	envStr("MUGSHOT_PLUGIN_TOKEN", &cfg.PluginToken)
 	envStr("MUGSHOT_GITHUB_REPO", &cfg.GithubRepo)

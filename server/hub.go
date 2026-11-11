@@ -166,7 +166,7 @@ func (h *Hub) handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
 		return
 	}
-	if !tokenEqual(bearerToken(r), h.cfg.DeviceToken) {
+	if !deviceTokenValid(h.cfg, bearerToken(r)) {
 		log.Printf("[ws] 设备连接鉴权失败 ip=%s", remoteIP(r))
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -332,7 +332,7 @@ func (h *Hub) handlePluginWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
 		return
 	}
-	if !tokenEqual(bearerToken(r), h.cfg.PluginToken) {
+	if !pluginTokenValid(h.cfg, bearerToken(r)) {
 		log.Printf("[ws] 插件连接鉴权失败 ip=%s", remoteIP(r))
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
