@@ -26,10 +26,10 @@ sudo apt install ./mugshot-server_<构建哈希>_arm64.deb
 
 包会自动完成：
 
-- 安装服务端 `/usr/bin/mugshot-server`、图形面板 `mugshot-gui`、终端菜单 `mugshot-ctl`
-- 应用菜单注册两个入口：
-  - **"Mugshot 服务端"**（图形界面）：三个页签——概览（运行状态 / 在线设备 / 启停重启）、运行日志（默认"只看本次运行"，可一键切换"最近 24 小时"完整历史；重启只影响显示范围，日志文件/journal 原样保留，切到该页自动加载最新，无需另开窗口）、接入信息（地址与 Token 查看复制 / 检查更新与一键更新）。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息；查看日志如遇权限提示，可 `sudo usermod -aG systemd-journal $USER` 后重新登录，一劳永逸
-  - **"Mugshot 终端管理"**（终端菜单 mugshot-ctl）：无桌面环境或 SSH 场景使用，含编辑配置与主题外观深浅色
+- 安装服务端 `/usr/bin/mugshot-server`、图形面板 `mugshot-gui`、终端工具 `mugshot-ctl`
+- 应用菜单只注册一个入口：
+  - **"Mugshot 服务端"**（图形界面）：三个页签——概览（运行状态 / 在线设备 / 启停重启）、运行日志（默认"只看本次运行"，可一键切换"最近 24 小时"完整历史；重启只影响显示范围，日志文件/journal 原样保留，切到该页自动加载最新，最多显示最近 500 行，无需另开窗口）、接入信息（地址与 Token 查看复制 / 检查更新与一键更新）。首次打开会弹出一次系统授权（读取 `/etc/mugshot/config.json` 中的 Token），之后自动记住连接信息；查看日志如遇权限提示，可 `sudo usermod -aG systemd-journal $USER` 后重新登录，一劳永逸
+  - `mugshot-ctl` 终端菜单保留在系统里（无菜单图标），无桌面环境或 SSH 场景在终端直接运行
 - 注册 systemd 服务 `mugshot-server`（`Restart=always`，`RestartSec=5`）并立即启动
 - 创建 `mugshot` 系统用户与数据目录 `/var/lib/mugshot`
 - 生成配置 `/etc/mugshot/config.json`（首次启动自动生成随机 device_token / plugin_token 并写回）

@@ -178,6 +178,19 @@ func dotStyle(on bool) widget.RichTextStyle {
 	return widget.RichTextStyle{ColorName: theme.ColorNameError, Inline: true}
 }
 
+// setDot 更新状态圆点；内容不变时跳过重绘（低端设备上重绘代价高）。
+func (u *ui) setDot(run bool) {
+	txt, st := "● 离线", dotStyle(false)
+	if run {
+		txt, st = "● 运行中", dotStyle(true)
+	}
+	if seg, ok := u.statusDot.Segments[0].(*widget.TextSegment); ok && seg.Text == txt {
+		return
+	}
+	u.statusDot.Segments[0] = &widget.TextSegment{Text: txt, Style: st}
+	u.statusDot.Refresh()
+}
+
 func (u *ui) build() fyne.CanvasObject {
 	// ---- 概览页 ----
 	u.statusDot = widget.NewRichText(&widget.TextSegment{Text: "● 检查中", Style: widget.RichTextStyle{Inline: true}})
@@ -211,7 +224,7 @@ func (u *ui) build() fyne.CanvasObject {
 	overview := container.NewVScroll(container.NewVBox(statusCard, devicesCard))
 
 	// ---- 运行日志页（页内展示，切换到本页即加载最新） ----
-	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志；切换到本页时自动加载最新内容。")
+	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志（最多 500 行，完整历史可用 journalctl 查看）；切换到本页时自动加载最新内容。")
 	u.logHint.Wrapping = fyne.TextWrapWord
 	u.logMode = "restart"
 	u.logModeBtn = widget.NewButton("查看最近 24 小时", u.toggleLogMode)
@@ -272,8 +285,8 @@ func (u *ui) build() fyne.CanvasObject {
 
 	tokenCard := widget.NewCard("接入信息", "", container.NewVBox(
 		note,
-		container.NewHBox(widget.NewLabel("地址"), container.NewGridWithColumns(1), u.urlEntry),
-		container.NewHBox(widget.NewLabel("Token"), u.tokenDev, copyToken),
+		container.NewBorder(nil, nil, widget.NewLabel("地址"), nil, u.urlEntry),
+		container.NewBorder(nil, nil, widget.NewLabel("Token"), nil, container.NewHBox(u.tokenDev, copyToken)),
 		saveBtn,
 	))
 	maintCard := widget.NewCard("更新", "", container.NewVBox(
@@ -322,8 +335,7 @@ func (u *ui) refreshHealth() {
 	if err != nil {
 		tx := fmt.Sprintf("无法连接 %s（%v）", cli.base, err)
 		fyne.Do(func() {
-			u.statusDot.Segments[0] = &widget.TextSegment{Text: "● 离线", Style: dotStyle(false)}
-			u.statusDot.Refresh()
+			u.setDot(false)
 			// 内容不变不重绘，避免轮询导致的界面抖动
 			if u.statusLn.Text != tx {
 				u.statusLn.SetText(tx)
@@ -341,8 +353,7 @@ func (u *ui) refreshHealth() {
 		return
 	}
 	fyne.Do(func() {
-		u.statusDot.Segments[0] = &widget.TextSegment{Text: "● 运行中", Style: dotStyle(true)}
-		u.statusDot.Refresh()
+		u.setDot(true)
 		u.statusLn.SetText(tx)
 	})
 	u.lastStatusTx = tx
@@ -388,8 +399,9 @@ func (u *ui) refreshDevices() {
 func deviceSig(rows []deviceRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "n=%d;", len(rows))
+	// 分钟粒度：设备每次上报（秒级）都会变的数据不触发整块重绘，低端软件渲染设备扛不住
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%s|%s|%t|%d|%d;", r.DeviceID, r.DeviceName, r.Online, r.LastReportAt, r.ReportCount)
+		fmt.Fprintf(&b, "%s|%s|%t|%d;", r.DeviceID, r.DeviceName, r.Online, r.LastReportAt/60000)
 	}
 	return b.String()
 }
@@ -473,7 +485,7 @@ func (u *ui) toggleLogMode() {
 	if u.logMode == "restart" {
 		u.logMode = "24h"
 		u.logModeBtn.SetText("只看本次运行")
-		u.logHint.SetText("最近 24 小时：跨重启查看历史日志（按日志文件原样展示，重启不会清除文件）。")
+		u.logHint.SetText("最近 24 小时：跨重启查看历史日志（最多 500 行，完整历史可用 journalctl 查看；重启不清除日志文件）。")
 	} else {
 		u.logMode = "restart"
 		u.logModeBtn.SetText("查看最近 24 小时")
@@ -513,11 +525,15 @@ func serviceStartSince() (string, bool) {
 	return s, true
 }
 
+// maxLogLines 日志页最多加载的行数。Fyne 多行文本控件渲染上千行在
+// 无 GPU（软件渲染）设备上会造成明显卡顿，超长日志请用 journalctl 查看。
+const maxLogLines = 500
+
 // serverLogs 优先直接读 journal（用户在 systemd-journal/adm 组内即可），
 // 无权限时回退 pkexec 授权读取；两者都带超时，避免界面卡在授权等待。
 // mode = "restart" 只取服务最近一次启动之后的日志；"24h" 取最近 24 小时。
 func serverLogs(mode string) (string, error) {
-	args := []string{"-u", "mugshot-server", "--no-pager", "-n", "3000"}
+	args := []string{"-u", "mugshot-server", "--no-pager", "-n", fmt.Sprint(maxLogLines)}
 	if mode == "restart" {
 		since, ok := serviceStartSince()
 		if !ok {
@@ -562,10 +578,12 @@ func relTime(ms int64) string {
 	d := time.Duration(time.Now().UnixMilli()-ms) * time.Millisecond
 	switch {
 	case d < time.Minute:
-		return fmt.Sprintf("%d 秒前", int(d.Seconds()))
+		return "刚刚"
 	case d < time.Hour:
 		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
-	default:
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
 	}
 }
