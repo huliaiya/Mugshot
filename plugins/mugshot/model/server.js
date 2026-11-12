@@ -282,6 +282,31 @@ class ServerClient {
       })
   }
 
+  /**
+   * 断开当前订阅并重新建立连接。
+   * 面板里改了服务端地址或 Token 后调用，避免旧连接一直挂着。
+   */
+  async restartWs() {
+    // 先置 closed，屏蔽旧连接 close 事件触发的自动重连
+    this.closed = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.reconnectPending = false
+    if (this.ws) {
+      const ws = this.ws
+      try { ws.removeAllListeners?.() } catch {}
+      try { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null } catch {}
+      try { ws.close() } catch {}
+      this.ws = null
+    }
+    this.wsState = "off"
+    this.reconnectDelay = 1000
+    this.closed = false
+    await this.startWs()
+  }
+
   close() {
     this.closed = true
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
