@@ -3,6 +3,7 @@ package com.mugshot.app
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -93,6 +94,16 @@ class ReportService : Service(), WsClient.Listener {
         super.onDestroy()
     }
 
+    // 从最近任务里划掉后仍保持上报：已同意隐私且配置完整时，重新拉起前台服务。
+    // 部分厂商杀进程较激进，配合 START_STICKY 与电池优化白名单可显著提升存活率。
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (Prefs.consent && Prefs.isConfigured()) {
+            LogStore.log("service", "任务被划掉，重新拉起上报服务")
+            start(this)
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     // ---- WsClient.Listener ----
 
     override fun onStateChanged(state: String) {
@@ -128,15 +139,24 @@ class ReportService : Service(), WsClient.Listener {
         }
     }
 
-    private fun buildNotification(text: String): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildNotification(text: String): Notification {
+        // 点击通知直接回到主界面，常驻通知同时也是进入应用的快捷入口
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_mugshot)
             .setContentTitle(getString(R.string.notif_title))
             .setContentText(text)
+            .setContentIntent(openApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
+    }
 
     private fun updateNotification(text: String) {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager

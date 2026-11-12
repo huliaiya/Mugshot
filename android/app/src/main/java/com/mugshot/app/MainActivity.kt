@@ -43,6 +43,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         VendorHelper.requestNotificationPermission(this, 1001)
+
+        // 进入应用即保持常驻通知：已完成配置时确保上报服务（前台服务）处于运行状态，
+        // 即便此前被系统回收也会在此刻重新拉起。
+        if (Prefs.isConfigured() && !ReportService.isRunning) {
+            ReportService.start(this)
+        }
     }
 
     private fun switchTo(fragment: Fragment) {

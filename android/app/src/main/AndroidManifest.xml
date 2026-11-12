@@ -46,10 +46,12 @@
             android:label="@string/title_settings" />
 
         <!-- 设备状态上报前台服务：dataSync 类型（Android 15 对该类型有每日约 6 小时配额，
-             超时后系统会停止服务；App 会自动降级为 WorkManager 周期 HTTP 上报并提示用户） -->
+             超时后系统会停止服务；App 会自动降级为 WorkManager 周期 HTTP 上报并提示用户）。
+             stopWithTask=false：从最近任务划掉后服务继续运行，配合 onTaskRemoved 保活 -->
         <service
             android:name=".ReportService"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
 
         <receiver
