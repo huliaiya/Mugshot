@@ -270,7 +270,7 @@ func main() {
 		_, err := u.refreshTokenForClient()
 		fyne.Do(func() {
 			if err != nil {
-				if u.conf.PluginToken == "" {
+				if u.pluginToken() == "" {
 					u.ctlResult.SetText("未自动获取到 Token（仅限与本机服务端同机），请在\"接入信息\"页手动填写")
 				}
 				return
@@ -306,6 +306,20 @@ func (u *ui) client() *client {
 	return u.cli
 }
 
+// pluginToken 读取当前保存的 Token，供界面线程判断是否已拿到令牌。
+func (u *ui) pluginToken() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.conf.PluginToken
+}
+
+// serverURL 读取当前保存的服务端地址。
+func (u *ui) serverURL() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.conf.ServerURL
+}
+
 func (u *ui) setClient(c *client) {
 	u.mu.Lock()
 	u.cli = c
@@ -322,18 +336,25 @@ func (u *ui) applyConf(c guiConf) {
 	_ = saveConf(c)
 }
 
-// updateToken 服务端 Token 变化（轮换/修改）后同步本地状态与连接。
-func (u *ui) updateToken(tok string) {
+// applyToken 保存新 Token、切换客户端并落盘。
+// 这一步放在调用线程完成：界面渲染在无 GPU 的设备上可能耗时数秒，
+// Token 自愈的落盘不能等界面线程，否则重启后又会拿旧 Token 回来。
+func (u *ui) applyToken(tok string) {
 	u.mu.Lock()
 	u.conf.PluginToken = tok
 	c := u.conf
 	u.mu.Unlock()
 	u.setClient(u.newClient())
+	_ = saveConf(c)
+}
+
+// updateToken 服务端 Token 变化（轮换/修改）后同步本地状态与连接，只能在界面线程调用。
+func (u *ui) updateToken(tok string) {
+	u.applyToken(tok)
 	u.tokenDev.SetText(tok)
 	if u.setToken != nil {
 		u.setToken.SetText(tok)
 	}
-	_ = saveConf(c)
 }
 
 // tokenSync 记录最近一次 Token 自动同步的结果。
@@ -383,13 +404,14 @@ func (u *ui) refreshTokenFromLocal() (string, error) {
 	return "", lastErr
 }
 
-// refreshTokenForClient 是客户端 401 时的自愈回调：后台线程里取回新 Token，
-// 界面上的 Token 输入框回到主线程更新。
+// refreshTokenForClient 是客户端 401 时的自愈回调：后台线程里取回新 Token。
+// Token 先在当前线程落盘并切到新客户端，界面上的输入框再回主线程更新。
 func (u *ui) refreshTokenForClient() (string, error) {
 	tok, err := u.refreshTokenFromLocal()
 	if err != nil {
 		return "", err
 	}
+	u.applyToken(tok)
 	fyne.Do(func() { u.updateToken(tok) })
 	return tok, nil
 }
@@ -503,6 +525,8 @@ func (u *ui) saveSettings() {
 			var resp struct {
 				OK              bool   `json:"ok"`
 				RestartRequired bool   `json:"restart_required"`
+				Listen          string `json:"listen"`
+				ListenChanged   bool   `json:"listen_changed"`
 				Note            string `json:"note"`
 			}
 			if json.Unmarshal(data, &resp) != nil || !resp.OK {
@@ -516,13 +540,38 @@ func (u *ui) saveSettings() {
 			if tok != cli.token() {
 				u.updateToken(tok)
 			}
+			// 端口改了以后接入信息页的地址自动跟着变
+			if resp.ListenChanged && resp.Listen != "" {
+				u.syncServerURL(resp.Listen)
+			}
 			txt := resp.Note
+			if txt == "" {
+				txt = "已保存并即时生效"
+			}
 			if resp.RestartRequired {
 				txt += "，请到概览页点击\"重启服务\""
 			}
 			u.setResult.SetText(txt)
 		})
 	}()
+}
+
+// syncServerURL 端口热切换后同步"接入信息"页里的服务端地址。
+// 只换端口，主机名保持用户填写的那个（例如 127.0.0.1 或局域网 IP）。
+func (u *ui) syncServerURL(listen string) {
+	newURL := replaceURLPort(u.serverURL(), listen)
+	if newURL == "" || newURL == u.serverURL() {
+		return
+	}
+	u.mu.Lock()
+	u.conf.ServerURL = newURL
+	c := u.conf
+	u.mu.Unlock()
+	u.setClient(u.newClient())
+	if u.urlEntry != nil {
+		u.urlEntry.SetText(newURL)
+	}
+	_ = saveConf(c)
 }
 
 // rotateToken 生成新 Token 并立即在服务端启用：旧 Token 立刻失效，
@@ -632,7 +681,7 @@ func (u *ui) build() fyne.CanvasObject {
 	)
 
 	// ---- 接入信息页 ----
-	note := widget.NewLabel("设备、插件与本管理界面共用同一个 Token；GUI 与服务端同机时会自动读取，可直接复制给 App 和插件。")
+	note := widget.NewLabel("设备、插件与本管理界面共用同一个 Token；GUI 与服务端同机时会自动读取，可直接复制给 App 和插件。在\"设置\"页改过监听端口后，这里的地址会自动同步成新端口。")
 	note.Wrapping = fyne.TextWrapWord
 	note.TextStyle = fyne.TextStyle{Italic: true}
 
@@ -703,7 +752,7 @@ func (u *ui) build() fyne.CanvasObject {
 	tokenPage := newDragScroll(container.NewVBox(tokenCard, maintCard))
 
 	// ---- 设置页（服务端参数，保存在服务端配置文件中） ----
-	setHint := widget.NewLabel("以下设置写入服务端配置文件：\"监听地址\"修改后需在概览页重启服务生效，其余即时生效。\"生成新 Token\"会立即换发新令牌，旧令牌立刻失效，App 与插件需同步更新。数据目录、GitHub 仓库等仍需在 /etc/mugshot/config.json 中修改。")
+	setHint := widget.NewLabel("以下设置写入服务端配置文件并即时生效，无需重启服务：\"监听地址\"改端口后服务立即切换到新端口，\"接入信息\"页地址会自动同步。\"生成新 Token\"会立即换发新令牌，旧令牌立刻失效，App 与插件需同步更新。数据目录、GitHub 仓库等仍需在 /etc/mugshot/config.json 中修改。")
 	setHint.Wrapping = fyne.TextWrapWord
 	setHint.TextStyle = fyne.TextStyle{Italic: true}
 
@@ -796,6 +845,7 @@ func (u *ui) refreshHealth() {
 		fyne.Do(func() {
 			u.setDot(false)
 			// 内容不变不重绘，避免轮询导致的界面抖动
+			// 控件只能在界面线程读取与修改，这里整体放进 fyne.Do
 			if u.statusLn.Text != tx {
 				u.statusLn.SetText(tx)
 			}
@@ -808,14 +858,20 @@ func (u *ui) refreshHealth() {
 	}
 	tx := fmt.Sprintf("版本 %s · 已运行 %s · 在线设备 %d / %d",
 		h.Version, fmtUptime(h.UptimeSec), h.DevicesOnline, h.DevicesTotal)
-	if tx == u.lastStatusTx {
+	// lastStatusTx 会被轮询线程和更新后的界面线程同时写入，比较与写入都要加锁
+	u.mu.Lock()
+	same := tx == u.lastStatusTx
+	if !same {
+		u.lastStatusTx = tx
+	}
+	u.mu.Unlock()
+	if same {
 		return
 	}
 	fyne.Do(func() {
 		u.setDot(true)
 		u.statusLn.SetText(tx)
 	})
-	u.lastStatusTx = tx
 }
 
 func (u *ui) refreshDevices() {
@@ -831,10 +887,15 @@ func (u *ui) refreshDevices() {
 	rows := d.Devices
 	// 数据无变化时跳过整块重绘
 	sig := deviceSig(rows)
-	if sig == u.lastDevSig {
+	u.mu.Lock()
+	same := sig == u.lastDevSig
+	if !same {
+		u.lastDevSig = sig
+	}
+	u.mu.Unlock()
+	if same {
 		return
 	}
-	u.lastDevSig = sig
 	fyne.Do(func() {
 		u.devSummary.SetText(fmt.Sprintf("共 %d 台设备", len(rows)))
 		u.devList.Objects = nil

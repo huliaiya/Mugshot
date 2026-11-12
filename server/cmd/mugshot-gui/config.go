@@ -46,7 +46,18 @@ func saveConf(c guiConf) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(confFile(), data, 0o600)
+	// 原子写：先写临时文件再改名。
+	// 自愈线程与界面线程可能同时保存，直接覆盖会写坏配置文件。
+	path := confFile()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // fetchLocalToken 从服务端的 /local/config 读取统一 Token。
@@ -80,6 +91,33 @@ func fetchLocalToken(base string) (string, error) {
 		return "", errors.New("响应缺少 Token")
 	}
 	return out.Token, nil
+}
+
+// replaceURLPort 把连接地址里的端口换成服务端新的监听端口。
+// 设置页改"监听地址"后，接入信息页的地址自动跟着变，无需手工改端口。
+func replaceURLPort(raw, listen string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.TrimSpace(listen) == "" {
+		return trimmed
+	}
+	_, port, err := net.SplitHostPort(strings.TrimSpace(listen))
+	if err != nil || port == "" {
+		return trimmed
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return trimmed
+	}
+	host := u.Hostname()
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	newHost := net.JoinHostPort(host, port)
+	if newHost == u.Host {
+		return trimmed
+	}
+	u.Host = newHost
+	return u.String()
 }
 
 // isLocalHost 判断 host 是否指向本机：回环地址或本机网卡的 IP。
