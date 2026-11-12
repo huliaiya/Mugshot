@@ -842,13 +842,19 @@ func (u *ui) refreshHealth() {
 	data, err := cli.get("/health", false)
 	if err != nil {
 		tx := fmt.Sprintf("无法连接 %s（%v）", cli.base, err)
+		// 内容不变就不排队到界面线程，离线时每 2 秒一次的重绘会拖慢点击响应
+		u.mu.Lock()
+		same := tx == u.lastStatusTx
+		if !same {
+			u.lastStatusTx = tx
+		}
+		u.mu.Unlock()
+		if same {
+			return
+		}
 		fyne.Do(func() {
 			u.setDot(false)
-			// 内容不变不重绘，避免轮询导致的界面抖动
-			// 控件只能在界面线程读取与修改，这里整体放进 fyne.Do
-			if u.statusLn.Text != tx {
-				u.statusLn.SetText(tx)
-			}
+			u.statusLn.SetText(tx)
 		})
 		return
 	}
@@ -926,23 +932,30 @@ func deviceSig(rows []deviceRow) string {
 	return b.String()
 }
 
+// checkUpdate 在后台线程查询版本，避免同步 HTTP 阻塞界面线程
+// （无 GPU 设备上界面线程一旦被网络请求占住，按钮点击会明显卡顿）。
 func (u *ui) checkUpdate() {
 	u.verLabel.SetText("正在检查更新……")
-	data, err := u.client().get("/version", false)
-	if err != nil {
-		u.verLabel.SetText("检查失败：" + err.Error())
-		return
-	}
-	var v versionResp
-	if json.Unmarshal(data, &v) != nil {
-		u.verLabel.SetText("检查失败：响应格式异常")
-		return
-	}
-	if v.Update {
-		u.verLabel.SetText(fmt.Sprintf("当前 %s，最新发布 %s，点击\"立即更新\"升级", v.Version, v.Latest))
-	} else {
-		u.verLabel.SetText(fmt.Sprintf("当前 %s 已是最新", v.Version))
-	}
+	cli := u.client()
+	go func() {
+		data, err := cli.get("/version", false)
+		if err != nil {
+			fyne.Do(func() { u.verLabel.SetText("检查失败：" + err.Error()) })
+			return
+		}
+		var v versionResp
+		if json.Unmarshal(data, &v) != nil {
+			fyne.Do(func() { u.verLabel.SetText("检查失败：响应格式异常") })
+			return
+		}
+		fyne.Do(func() {
+			if v.Update {
+				u.verLabel.SetText(fmt.Sprintf("当前 %s，最新发布 %s，点击\"立即更新\"升级", v.Version, v.Latest))
+			} else {
+				u.verLabel.SetText(fmt.Sprintf("当前 %s 已是最新", v.Version))
+			}
+		})
+	}()
 }
 
 // doUpdate 走服务端 POST /admin/update 自更新链路：
