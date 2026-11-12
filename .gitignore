@@ -1,5 +1,7 @@
 # Go
 server/mugshot-server
+server/mugshot-server-amd64
+server/mugshot-gui
 server/data/
 *.test
 *.out
