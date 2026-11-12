@@ -62,7 +62,7 @@ func CheckLatestReleaseForce(cfg *Config) (*Release, error) {
 }
 
 func checkLatestRelease(cfg *Config, force bool) (*Release, error) {
-	repo := cfg.GithubRepo
+	repo := cfg.GetGithubRepo()
 	if repo == "" {
 		return nil, errors.New("未配置 github_repo，无法检查更新（可在 config.json 设置 github_repo 或环境变量 MUGSHOT_GITHUB_REPO）")
 	}
@@ -219,7 +219,7 @@ func pickAsset(rel *Release) (name, url string, size int64) {
 }
 
 func applyMirror(cfg *Config, url string) string {
-	mirror := strings.TrimRight(cfg.GithubMirror, "/")
+	mirror := strings.TrimRight(cfg.GetGithubMirror(), "/")
 	if mirror == "" {
 		return url
 	}
@@ -344,9 +344,15 @@ func fileSizeOrZero(path string) int64 {
 
 // UpdateCheckLoop checks for updates at startup and once per day; it only
 // logs unless update_auto_apply is explicitly enabled in the config.
+// 开关（update_auto_check）每轮都会重新读取，设置页改完立即生效，无需重启。
 func UpdateCheckLoop(cfg *Config) {
 	time.Sleep(15 * time.Second)
+	var lastCheck time.Time
 	check := func() {
+		if !cfg.GetUpdateAutoCheck() {
+			return
+		}
+		lastCheck = time.Now()
 		rel, err := CheckLatestRelease(cfg)
 		if err != nil {
 			log.Printf("[update] 定期检查更新失败: %v", err)
@@ -357,7 +363,7 @@ func UpdateCheckLoop(cfg *Config) {
 			return
 		}
 		log.Printf("[update] 发现新版本 %s（当前 %s），可执行 `mugshot-server --update` 或发送 #mugshot更新", rel.Tag, version)
-		if cfg.UpdateAutoApply {
+		if cfg.GetUpdateAutoApply() {
 			if err := SelfUpdate(cfg, rel); err == nil {
 				log.Printf("[update] update_auto_apply 已启用，即将重启到 %s", rel.Tag)
 				time.Sleep(2 * time.Second)
@@ -366,9 +372,12 @@ func UpdateCheckLoop(cfg *Config) {
 		}
 	}
 	check()
-	t := time.NewTicker(24 * time.Hour)
+	// 每小时醒来一次：开关打开后最多一小时生效，关闭后立即停止检查。
+	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for range t.C {
-		check()
+		if lastCheck.IsZero() || time.Since(lastCheck) >= 24*time.Hour {
+			check()
+		}
 	}
 }

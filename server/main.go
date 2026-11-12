@@ -48,7 +48,7 @@ func main() {
 		log.Fatalf("[config] 加载失败: %v", err)
 	}
 	log.Printf("[config] 监听=%s 数据目录=%s 上报限流=%d次/分钟 按需上报冷却=%dms 按需等待=%dms",
-		cfg.Listen, cfg.DataDir, cfg.ReportRatePerMin, cfg.FreshCooldownMs, cfg.FreshTimeoutMs)
+		cfg.GetListen(), cfg.GetDataDir(), cfg.GetReportRatePerMin(), cfg.GetFreshCooldownMs(), cfg.GetFreshTimeoutMs())
 
 	if *checkUpdate || *doUpdate {
 		runUpdateCLI(cfg, *doUpdate)
@@ -67,46 +67,35 @@ func main() {
 	api.Register(mux)
 	hub.RegisterRoutes(mux)
 
-	httpSrv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+	// 监听器支持运行期换端口：设置页改监听地址后热生效，无需重启进程。
+	rt := newHTTPRuntime(mux)
+	if err := rt.Start(cfg.GetListen()); err != nil {
+		log.Fatalf("[http] 监听 %s 失败: %v", cfg.GetListen(), err)
 	}
+	api.SetRelisten(rt.Rebind)
 
 	// background jobs
 	go store.FlushLoop()
 	go store.PruneLoop()
 	go hub.HeartbeatLoop()
-	if cfg.UpdateAutoCheck {
-		go UpdateCheckLoop(cfg)
-	}
+	go UpdateCheckLoop(cfg)
 	go sdNotifyWatchdogLoop()
 
 	// sd_notify READY (no-op when not running under systemd with NotifyAccess)
 	sdNotify("READY=1")
 
-	errCh := make(chan error, 1)
-	go func() {
-		log.Printf("[http] 开始监听 %s（设备 WS: /ws/device，插件 WS: /ws/plugin，API: /health /devices /status）", cfg.Listen)
-		errCh <- httpSrv.ListenAndServe()
-	}()
+	log.Printf("[http] 开始监听 %s（设备 WS: /ws/device，插件 WS: /ws/plugin，API: /health /devices /status）", cfg.GetListen())
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	select {
-	case sig := <-sigCh:
-		log.Printf("[main] 收到信号 %s，开始优雅退出", sig)
-	case err := <-errCh:
-		if err != nil && err != http.ErrServerClosed {
-			log.Printf("[http] 服务异常退出: %v", err)
-		}
-	}
+	sig := <-sigCh
+	log.Printf("[main] 收到信号 %s，开始优雅退出", sig)
 
 	sdNotify("STOPPING=1")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = httpSrv.Shutdown(ctx)
+	_ = rt.Shutdown(ctx)
 	hub.Close()
 	store.Close()
 	log.Printf("[main] 已退出（systemd Restart=always 会自动拉起）")

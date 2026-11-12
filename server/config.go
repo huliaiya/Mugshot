@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Config holds all server settings. It is loaded from (in order of priority):
@@ -38,10 +39,134 @@ type Config struct {
 	UpdateAutoApply  bool   `json:"update_auto_apply"`      // dangerous: auto self-update when newer release found
 
 	path string `json:"-"` // resolved config file path (not serialized)
+
+	// mu 保护运行期会被 GUI 热更新的字段。配置在启动阶段加载时无需加锁，
+	// 服务跑起来之后所有读写都走下面的 getter / Update，避免并发读写撕裂。
+	mu sync.RWMutex
 }
 
 // Path returns the resolved config file path used at load time.
 func (c *Config) Path() string { return c.path }
+
+// Update 在锁内修改配置。运行期的设置热更新都走这里，
+// 调用方拿到的是配置本体，可以直接改字段。
+func (c *Config) Update(fn func(*Config)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fn(c)
+}
+
+// GetListen 返回当前监听地址。
+func (c *Config) GetListen() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Listen
+}
+
+// GetToken 返回统一令牌。
+func (c *Config) GetToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Token
+}
+
+// GetDeviceToken 返回兼容用的旧设备令牌。
+func (c *Config) GetDeviceToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DeviceToken
+}
+
+// GetPluginToken 返回兼容用的旧插件令牌。
+func (c *Config) GetPluginToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PluginToken
+}
+
+// GetDataDir 返回数据目录。
+func (c *Config) GetDataDir() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.DataDir
+}
+
+// GetReportRatePerMin 返回单设备每分钟上报上限。
+func (c *Config) GetReportRatePerMin() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ReportRatePerMin
+}
+
+// GetFreshTimeoutMs 返回按需上报等待超时。
+func (c *Config) GetFreshTimeoutMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.FreshTimeoutMs
+}
+
+// GetFreshCooldownMs 返回按需上报冷却时间。
+func (c *Config) GetFreshCooldownMs() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.FreshCooldownMs
+}
+
+// GetRetentionDays 返回设备数据保留天数。
+func (c *Config) GetRetentionDays() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.RetentionDays
+}
+
+// GetOnlineTimeoutSec 返回离线判定秒数。
+func (c *Config) GetOnlineTimeoutSec() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.OnlineTimeoutSec
+}
+
+// GetGithubRepo 返回更新检查使用的仓库。
+func (c *Config) GetGithubRepo() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.GithubRepo
+}
+
+// GetGithubMirror 返回下载镜像前缀。
+func (c *Config) GetGithubMirror() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.GithubMirror
+}
+
+// GetUpdateAutoCheck 返回是否自动检查更新。
+func (c *Config) GetUpdateAutoCheck() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UpdateAutoCheck
+}
+
+// GetUpdateAutoApply 返回是否自动应用更新。
+func (c *Config) GetUpdateAutoApply() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UpdateAutoApply
+}
+
+// DeviceTokenValid 判断设备令牌是否有效：统一 token 或旧 device_token 都接受。
+func (c *Config) DeviceTokenValid(got string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return tokenEqual(got, c.Token) || tokenEqual(got, c.DeviceToken)
+}
+
+// PluginTokenValid 判断插件令牌是否有效：统一 token 或旧 plugin_token 都接受。
+func (c *Config) PluginTokenValid(got string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return tokenEqual(got, c.Token) || tokenEqual(got, c.PluginToken)
+}
 
 func DefaultConfig() *Config {
 	return &Config{

@@ -361,9 +361,10 @@ func (s *Store) PruneLoop() {
 
 // pruneExpired removes devices not seen for retention days (data retention).
 func (s *Store) pruneExpired() {
+	retention := s.cfg.GetRetentionDays()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	cutoff := nowMs() - int64(s.cfg.RetentionDays)*24*3600*1000
+	cutoff := nowMs() - int64(retention)*24*3600*1000
 	removed := 0
 	for id, d := range s.devices {
 		last := d.LastHeartbeat
@@ -377,7 +378,7 @@ func (s *Store) pruneExpired() {
 	}
 	if removed > 0 {
 		s.dirty = true
-		log.Printf("[store] 已按保留策略清理 %d 台超过 %d 天未上报的设备", removed, s.cfg.RetentionDays)
+		log.Printf("[store] 已按保留策略清理 %d 台超过 %d 天未上报的设备", removed, retention)
 	}
 }
 

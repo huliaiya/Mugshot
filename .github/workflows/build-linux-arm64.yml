@@ -41,6 +41,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libgl1-mesa-dev xorg-dev libgbm-dev libwayland-dev
 
+      - name: Test
+        working-directory: server
+        env:
+          CGO_ENABLED: "1"
+        run: go test ./...
+
       - name: Vet (含 GUI 包)
         working-directory: server
         env:
