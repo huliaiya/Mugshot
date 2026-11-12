@@ -231,6 +231,8 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 
 Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`（PKCS12，别名 `com.Mugshot.huli`，密码见 app/build.gradle.kts），CI 无需额外 Secrets；CI 会用 apksigner verify 校验签名。如需更换签名，替换该 keystore 文件并同步修改 build.gradle.kts（注意：换签名后无法覆盖安装旧版本，需先卸载）。
 
+每次发版都要递增 `android/app/build.gradle.kts` 里的 `versionCode`：新包版本号与已安装版本相同时，系统会以「降级安装」为由拒绝覆盖安装，签名一致也无法直接升级。
+
 打 tag 发布：`git tag v1.0.0 && git push origin v1.0.0`，三个 workflow 会自动构建并附到 Release。
 
 ## 6. 故障排查
