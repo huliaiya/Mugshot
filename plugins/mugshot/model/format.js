@@ -160,7 +160,7 @@ export function statusView(resp) {
 }
 
 export function commandFor(name) {
-  return `#mugshot查看 ${name}`
+  return `#群主查看 ${name}`
 }
 
 export function pluginFooter() {

@@ -111,7 +111,7 @@ curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:8080/devices
 - 安全加固：`NoNewPrivileges` / `ProtectSystem=strict` / `PrivateTmp`（数据目录通过 `ReadWritePaths` 放行）
 - 日志：`journalctl -u mugshot-server -f`（日志中 token 只显示前 4 位掩码）
 
-> 自更新说明：`#mugshot更新` 触发后，服务端会从 GitHub Release（可配 `github_mirror` 前缀加速）下载新二进制替换自身，然后主动退出，由 systemd `Restart=always` 拉起新版本，约 5~10 秒恢复。
+> 自更新说明：`#群主更新` 触发后，服务端会从 GitHub Release（可配 `github_mirror` 前缀加速）下载新二进制替换自身，然后主动退出，由 systemd `Restart=always` 拉起新版本，约 5~10 秒恢复。
 
 ### 1.6 公网暴露与 TLS
 
@@ -166,7 +166,7 @@ token: "与服务端同一个 Token（GUI 接入信息页可直接复制）"
 plugin_token: ""        # 兼容旧配置的键名，填了同样生效
 fresh_timeout_ms: 8000      # 实时查询等待设备上报的超时
 fresh_cooldown_ms: 10000    # 同一用户实时查询冷却
-detail_fresh: true          # #mugshot详情 是否默认触发实时
+detail_fresh: true          # #群主详情 是否默认触发实时
 github_repo: "你的GitHub用户名/Mugshot"
 auto_update_check: true
 device_btn_per_row: 5       # 设备选择按钮每行个数（最多 10）
@@ -174,7 +174,7 @@ device_btn_per_row: 5       # 设备选择按钮每行个数（最多 10）
 
 重启 Yunzai 生效。日志出现 `已连接 mugshot-server WebSocket 订阅` 即成功。
 
-> 注意：`#mugshot列表` 等所有回复均为图片，依赖 Yunzai 渲染器可用（`config/renderer.yaml`）。
+> 注意：`#群主列表` 等所有回复均为图片，依赖 Yunzai 渲染器可用（`config/renderer.yaml`）。
 
 ## 3. 安装 Android App
 
@@ -207,13 +207,13 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 
 | 指令 | 说明 |
 |------|------|
-| `#mugshot帮助` | 指令帮助（图片） |
-| `#mugshot列表` | 所有设备概览 |
-| `#mugshot查看 [设备名]` | 实时查看（默认 fresh，10 秒冷却） |
-| `#mugshot在干嘛 [设备名]` | 同上（别名） |
-| `#mugshot详情 [设备名]` | 完整字段 + 最近 10 条上报记录 |
-| `#mugshot状态` | 服务端健康状态与版本 |
-| `#mugshot更新` | 一条指令检查并直接更新服务端与插件，无需二次确认（仅 Master） |
+| `#群主帮助` | 指令帮助（图片） |
+| `#群主列表` | 所有设备概览 |
+| `#群主查看 [设备名]` | 实时查看（默认 fresh，10 秒冷却） |
+| `#群主在干嘛 [设备名]` | 同上（别名） |
+| `#群主详情 [设备名]` | 完整字段 + 最近 10 条上报记录 |
+| `#群主状态` | 服务端健康状态与版本 |
+| `#群主更新` | 一条指令检查并直接更新服务端与插件，无需二次确认（仅 Master） |
 
 - 多台设备时省略设备名会返回设备选择卡片（QQBot 适配器下带按钮）
 - 实时查询触发 `request_report`，设备在几秒内回报 `live` 数据；超时/离线/冷却自动降级缓存并标注 `CACHE`

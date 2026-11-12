@@ -362,7 +362,7 @@ func UpdateCheckLoop(cfg *Config) {
 			log.Printf("[update] 定期检查：当前发布版本 %s 已是最新", releaseTag)
 			return
 		}
-		log.Printf("[update] 发现新版本 %s（当前 %s），可执行 `mugshot-server --update` 或发送 #mugshot更新", rel.Tag, version)
+		log.Printf("[update] 发现新版本 %s（当前 %s），可执行 `mugshot-server --update` 或发送 #群主更新", rel.Tag, version)
 		if cfg.GetUpdateAutoApply() {
 			if err := SelfUpdate(cfg, rel); err == nil {
 				log.Printf("[update] update_auto_apply 已启用，即将重启到 %s", rel.Tag)

@@ -67,7 +67,7 @@ async function fetchLatest() {
   }
 }
 
-// GitHub 检查结果缓存：#mugshot状态 等指令可能频繁触发，5 分钟内复用同一结果，
+// GitHub 检查结果缓存：#群主状态 等指令可能频繁触发，5 分钟内复用同一结果，
 // 避免触发 GitHub API 限流；执行更新时强制刷新拿到真正的最新版本
 let ghCache = null // { tag, ts }
 
@@ -131,7 +131,7 @@ export async function updatePlugin() {
 export async function silentCheck() {
   try {
     const { updateAvailable, latest, current } = await checkForUpdate()
-    if (updateAvailable) logger.mark(`[Mugshot] 发现插件新版本 ${latest}（当前 v${current}），Master 可发送 #mugshot插件更新`)
+    if (updateAvailable) logger.mark(`[Mugshot] 发现插件新版本 ${latest}（当前 v${current}），Master 可发送 #群主更新`)
   } catch (err) {
     logger.debug(`[Mugshot] 更新检查失败: ${err.message}`)
   }

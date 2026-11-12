@@ -6,7 +6,7 @@
 //  - 所有指令回复均通过 e.runtime.render 渲染为图片后发送（配合 QQBot 按钮）
 //  - 按钮仅 QQBot 适配器可用（见 model/buttons.js），其他协议端自动降级为纯图片
 //  - 定时任务 cron 为 6 位（秒 分 时 日 月 星期）
-//  - 权限：#mugshot更新 仅 Master（一条指令直接检查并更新服务端与插件）
+//  - 权限：#群主更新 仅 Master（一条指令直接检查并更新服务端与插件）
 import plugin from "../../lib/plugins/plugin.js"
 
 import { config } from "./model/config.js"
@@ -41,12 +41,12 @@ export class Mugshot extends plugin {
         },
       ],
       rule: [
-        { reg: "^#[mM]ugshot帮助$", fnc: "help", permission: "all" },
-        { reg: "^#[mM]ugshot列表$", fnc: "deviceList", permission: "all" },
-        { reg: "^#[mM]ugshot(查看|在干嘛)\\s*(.*)$", fnc: "viewDevice", permission: "all" },
-        { reg: "^#[mM]ugshot详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
-        { reg: "^#[mM]ugshot状态$", fnc: "serverStatus", permission: "all" },
-        { reg: "^#[mM]ugshot更新$", fnc: "serverUpdate", permission: "master" },
+        { reg: "^#群主帮助$", fnc: "help", permission: "all" },
+        { reg: "^#群主列表$", fnc: "deviceList", permission: "all" },
+        { reg: "^#群主(查看|在干嘛)\\s*(.*)$", fnc: "viewDevice", permission: "all" },
+        { reg: "^#群主详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
+        { reg: "^#群主状态$", fnc: "serverStatus", permission: "all" },
+        { reg: "^#群主更新$", fnc: "serverUpdate", permission: "master" },
       ],
     })
     this.freshCooldown = new Map() // user_id -> last fresh query ts
@@ -74,7 +74,7 @@ export class Mugshot extends plugin {
 
   // ---------- 指令实现 ----------
 
-  /** #mugshot帮助 */
+  /** #群主帮助 */
   async help() {
     const data = {
       title: "Mugshot 指令帮助",
@@ -83,17 +83,17 @@ export class Mugshot extends plugin {
         {
           name: "设备查询",
           list: [
-            { cmd: "#mugshot列表", desc: "查看所有已接入设备（在线状态/最后上报）" },
-            { cmd: "#mugshot查看 [设备名]", desc: "查看设备当前状态，默认触发一次实时上报" },
-            { cmd: "#mugshot在干嘛 [设备名]", desc: "同 #mugshot查看" },
-            { cmd: "#mugshot详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
+            { cmd: "#群主列表", desc: "查看所有已接入设备（在线状态/最后上报）" },
+            { cmd: "#群主查看 [设备名]", desc: "查看设备当前状态，默认触发一次实时上报" },
+            { cmd: "#群主在干嘛 [设备名]", desc: "同 #群主查看" },
+            { cmd: "#群主详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
           ],
         },
         {
           name: "系统维护",
           list: [
-            { cmd: "#mugshot状态", desc: "服务端健康状态与版本" },
-            { cmd: "#mugshot更新", desc: "检查并直接更新服务端与插件（仅 Master）" },
+            { cmd: "#群主状态", desc: "服务端健康状态与版本" },
+            { cmd: "#群主更新", desc: "检查并直接更新服务端与插件（仅 Master）" },
           ],
         },
       ],
@@ -104,7 +104,7 @@ export class Mugshot extends plugin {
     ])
   }
 
-  /** #mugshot列表 */
+  /** #群主列表 */
   async deviceList() {
     let resp
     try {
@@ -130,19 +130,19 @@ export class Mugshot extends plugin {
     ])
   }
 
-  /** #mugshot查看 [设备名] / #mugshot在干嘛 [设备名] */
+  /** #群主查看 [设备名] / #群主在干嘛 [设备名] */
   async viewDevice() {
-    const name = (this.e.msg.replace(/^#[mM]ugshot(查看|在干嘛)/, "") || "").trim()
+    const name = (this.e.msg.replace(/^#群主(查看|在干嘛)/, "") || "").trim()
     return this.#view(name, { fresh: true, tpl: "status", title: "设备当前状态" })
   }
 
-  /** #mugshot详情 [设备名] */
+  /** #群主详情 [设备名] */
   async deviceDetail() {
-    const name = (this.e.msg.replace(/^#[mM]ugshot详情/, "") || "").trim()
+    const name = (this.e.msg.replace(/^#群主详情/, "") || "").trim()
     return this.#view(name, { fresh: !!config.detail_fresh, tpl: "detail", title: "设备详情" })
   }
 
-  /** #mugshot状态 */
+  /** #群主状态 */
   async serverStatus() {
     let health
     try {
@@ -177,7 +177,7 @@ export class Mugshot extends plugin {
   }
 
   /**
-   * #mugshot更新（仅 Master）：一条指令直接更新双端。
+   * #群主更新（仅 Master）：一条指令直接更新双端。
    * 并行检查服务端与插件，发现有更新就直接执行，无需二次确认。
    */
   async serverUpdate() {
@@ -224,7 +224,7 @@ export class Mugshot extends plugin {
         lines.push(`服务端：更新失败（${err.message}）`)
       }
     } else {
-      lines.push(s ? `服务端：已是最新（${s.current}）` : "服务端：检查失败，可发送 #mugshot状态 排查")
+      lines.push(s ? `服务端：已是最新（${s.current}）` : "服务端：检查失败，可发送 #群主状态 排查")
     }
 
     if (pAvail) {
@@ -235,7 +235,7 @@ export class Mugshot extends plugin {
         lines.push(`插件：更新失败（${err.message}）`)
       }
     } else {
-      lines.push(p ? `插件：已是最新（v${p.current}）` : "插件：检查失败，可发送 #mugshot状态 排查")
+      lines.push(p ? `插件：已是最新（v${p.current}）` : "插件：检查失败，可发送 #群主状态 排查")
     }
 
     const data = updateCardData("双端更新结果", lines.join("\n"))
@@ -311,9 +311,9 @@ export class Mugshot extends plugin {
     const rows = isQQBot(this.e)
       ? [
           [
-            commandButton("刷新", `#mugshot查看 ${name}`, 1),
-            commandButton("详情", `#mugshot详情 ${name}`, 2),
-            commandButton("设备列表", "#mugshot列表", 2),
+            commandButton("刷新", `#群主查看 ${name}`, 1),
+            commandButton("详情", `#群主详情 ${name}`, 2),
+            commandButton("设备列表", "#群主列表", 2),
           ],
         ]
       : []
@@ -336,7 +336,7 @@ export class Mugshot extends plugin {
     const list = devices.map(listView)
     const data = {
       title: "选择要查询的设备",
-      hint: `接入 ${list.length} 台设备，请点击按钮或发送「#mugshot${actionText} 设备名」`,
+      hint: `接入 ${list.length} 台设备，请点击按钮或发送「#群主${actionText} 设备名」`,
       devices: list,
       server: pluginFooter(),
     }
@@ -346,7 +346,7 @@ export class Mugshot extends plugin {
     )
     const img = renderCard(this.e, "devices", data)
     return img.then(i => this.#send(i, isQQBot(this.e) ? rows : [], [
-      ["设备选择渲染失败", `共 ${list.length} 台设备，请发送“#mugshot查看 设备名”指定设备：\n` + list.map(d => `${d.online ? "[在线]" : "[离线]"} ${d.device_name}`).join("\n")],
+      ["设备选择渲染失败", `共 ${list.length} 台设备，请发送“#群主查看 设备名”指定设备：\n` + list.map(d => `${d.online ? "[在线]" : "[离线]"} ${d.device_name}`).join("\n")],
     ]))
   }
 
@@ -356,7 +356,7 @@ export class Mugshot extends plugin {
     for (let i = 0; i < items.length && rows.length < 5; i += perRow) {
       rows.push(
         items.slice(i, i + perRow).map(item =>
-          commandButton(item.name, `#mugshot${prefix === "详情" ? "详情" : "查看"} ${item.name}`, 1),
+          commandButton(item.name, `#群主${prefix === "详情" ? "详情" : "查看"} ${item.name}`, 1),
         ),
       )
     }
@@ -369,7 +369,7 @@ export class Mugshot extends plugin {
     const data = {
       title: `Mugshot · ${title}`,
       message,
-      hint: "可发送 #mugshot状态 检查服务端连通性，或联系群主检查 mugshot-server。",
+      hint: "可发送 #群主状态 检查服务端连通性，或联系群主检查 mugshot-server。",
       time: formatTime(Date.now()),
       server: pluginFooter(),
     }

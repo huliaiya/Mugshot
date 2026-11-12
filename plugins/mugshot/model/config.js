@@ -17,7 +17,7 @@ const DEFAULT = {
   fresh_timeout_ms: 8000,
   // 同一用户触发 fresh 查询的最小间隔（毫秒），冷却期内自动降级为缓存查询
   fresh_cooldown_ms: 10000,
-  // #mugshot详情 是否默认触发按需上报
+  // #群主详情 是否默认触发按需上报
   detail_fresh: true,
   // 插件/服务端更新检查使用的 GitHub 仓库
   github_repo: GITHUB_REPO_DEFAULT,
