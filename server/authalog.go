@@ -23,6 +23,11 @@ func newAuthFailLimiter() *authFailLimiter {
 	return &authFailLimiter{last: map[string]*failEntry{}}
 }
 
+// authFailLog 是全进程共用的鉴权失败日志限流器。
+// HTTP 接口与 WebSocket 握手共用同一个计数器，
+// 同一个客户端在两个入口上的失败会汇总成一条日志，不会互相绕过限流。
+var authFailLog = newAuthFailLimiter()
+
 // shouldLog 返回 (是否记录, 本次统计窗口内的失败次数)。
 // 同一 key 的首次失败立即记录，之后一分钟内的重复失败只计数，
 // 窗口结束后的下一次失败会带着这段时间的失败总数一起输出。

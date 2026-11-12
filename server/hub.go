@@ -167,7 +167,7 @@ func (h *Hub) handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !deviceTokenValid(h.cfg, bearerToken(r)) {
-		log.Printf("[ws] 设备连接鉴权失败 ip=%s", remoteIP(r))
+		h.logWSAuthFail("设备", r)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -256,7 +256,7 @@ func (h *Hub) handleReport(conn *DeviceConn, msg *deviceMsg) {
 		return
 	}
 	if !h.allowReport(conn.DeviceID) {
-		log.Printf("[ws] 设备 %s 上报频率超限（>%d/min），本次丢弃", maskID(conn.DeviceID), h.cfg.ReportRatePerMin)
+		log.Printf("[ws] 设备 %s 上报频率超限（>%d/min），本次丢弃", maskID(conn.DeviceID), h.cfg.GetReportRatePerMin())
 		return
 	}
 
@@ -327,13 +327,28 @@ func (h *Hub) unregisterDevice(conn *DeviceConn) {
 
 // ---- plugin connections ----
 
+// logWSAuthFail 记录 WebSocket 握手鉴权失败。
+// 设备与插件拿着过期 Token 会持续重连握手，不限流会逐条刷屏；
+// 这里与 HTTP 接口共用同一个限流器，同一分钟内只记一条并汇总失败次数。
+func (h *Hub) logWSAuthFail(kind string, r *http.Request) {
+	ip := remoteIP(r)
+	key := "ws|" + kind + "|" + ip
+	if ok, count := authFailLog.shouldLog(key); ok {
+		if count > 1 {
+			log.Printf("[ws] %s连接鉴权失败 ip=%s（过去一分钟失败 %d 次，Token 不匹配）", kind, ip, count)
+		} else {
+			log.Printf("[ws] %s连接鉴权失败 ip=%s（Token 不匹配）", kind, ip)
+		}
+	}
+}
+
 func (h *Hub) handlePluginWS(w http.ResponseWriter, r *http.Request) {
 	if h.closed.Load() {
 		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
 		return
 	}
 	if !pluginTokenValid(h.cfg, bearerToken(r)) {
-		log.Printf("[ws] 插件连接鉴权失败 ip=%s", remoteIP(r))
+		h.logWSAuthFail("插件", r)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -428,9 +443,10 @@ func (h *Hub) RequestReport(deviceID, reason string, timeout time.Duration) (*Re
 		return nil, ErrDeviceOffline
 	}
 	now := nowMs()
-	if last := h.freshLast[deviceID]; now-last < int64(h.cfg.FreshCooldownMs) {
+	cooldown := h.cfg.GetFreshCooldownMs()
+	if last := h.freshLast[deviceID]; now-last < int64(cooldown) {
 		h.mu.Unlock()
-		log.Printf("[fresh] 设备 %s 冷却中（距上次 %dms < %dms），跳过下发", deviceID, now-last, h.cfg.FreshCooldownMs)
+		log.Printf("[fresh] 设备 %s 冷却中（距上次 %dms < %dms），跳过下发", deviceID, now-last, cooldown)
 		return nil, fmt.Errorf("%w，请稍后再试", ErrCooldown)
 	}
 	h.freshLast[deviceID] = now
@@ -479,7 +495,8 @@ func (h *Hub) reply(conn *DeviceConn, msg *deviceMsg) {
 }
 
 func (h *Hub) allowReport(deviceID string) bool {
-	if h.cfg.ReportRatePerMin <= 0 {
+	limit := h.cfg.GetReportRatePerMin()
+	if limit <= 0 {
 		return true
 	}
 	h.mu.Lock()
@@ -493,7 +510,7 @@ func (h *Hub) allowReport(deviceID string) bool {
 		}
 	}
 	hits = kept
-	if len(hits) >= h.cfg.ReportRatePerMin {
+	if len(hits) >= limit {
 		h.reportHits[deviceID] = hits
 		return false
 	}

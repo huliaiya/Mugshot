@@ -19,14 +19,22 @@ import (
 // probes / CLI tooling). All plugin-facing endpoints require the plugin
 // token; the HTTP report ingest requires the device token.
 type API struct {
-	cfg     *Config
-	store   *Store
-	hub     *Hub
-	failLog *authFailLimiter
+	cfg   *Config
+	store *Store
+	hub   *Hub
+
+	// relisten 用于运行期切换监听端口（设置页改监听地址时热生效）。
+	// 为 nil 时只改配置不换端口（单元测试场景）。
+	relisten func(string) error
 }
 
 func NewAPI(cfg *Config, store *Store, hub *Hub) *API {
-	return &API{cfg: cfg, store: store, hub: hub, failLog: newAuthFailLimiter()}
+	return &API{cfg: cfg, store: store, hub: hub}
+}
+
+// SetRelisten 注入端口热切换回调。
+func (a *API) SetRelisten(fn func(string) error) {
+	a.relisten = fn
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -61,12 +69,12 @@ func tokenEqual(got, want string) bool {
 
 // deviceTokenValid 判断请求令牌是否有效：统一 token 或旧 device_token 都接受。
 func deviceTokenValid(cfg *Config, got string) bool {
-	return tokenEqual(got, cfg.Token) || tokenEqual(got, cfg.DeviceToken)
+	return cfg.DeviceTokenValid(got)
 }
 
 // pluginTokenValid 判断请求令牌是否有效：统一 token 或旧 plugin_token 都接受。
 func pluginTokenValid(cfg *Config, got string) bool {
-	return tokenEqual(got, cfg.Token) || tokenEqual(got, cfg.PluginToken)
+	return cfg.PluginTokenValid(got)
 }
 
 // pluginAuth 判断请求方是否持有有效令牌。token 是统一令牌；
@@ -107,7 +115,7 @@ func (a *API) requireDevice(next http.HandlerFunc) http.HandlerFunc {
 func (a *API) logAuthFail(kind string, r *http.Request) {
 	ip := remoteIP(r)
 	key := kind + "|" + ip + "|" + r.URL.Path
-	if ok, count := a.failLog.shouldLog(key); ok {
+	if ok, count := authFailLog.shouldLog(key); ok {
 		if count > 1 {
 			log.Printf("[api] %s鉴权失败 ip=%s path=%s（过去一分钟失败 %d 次，Token 不匹配）", kind, ip, r.URL.Path, count)
 		} else {
@@ -181,8 +189,8 @@ func (a *API) handleLocalConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":     true,
-		"token":  a.cfg.Token,
-		"listen": a.cfg.Listen,
+		"token":  a.cfg.GetToken(),
+		"listen": a.cfg.GetListen(),
 	})
 }
 
@@ -206,16 +214,16 @@ func (a *API) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, adminConfigSettings{
 			OK:               true,
-			Listen:           a.cfg.Listen,
-			Token:            a.cfg.Token,
-			DataDir:          a.cfg.DataDir,
-			ReportRatePerMin: a.cfg.ReportRatePerMin,
-			RetentionDays:    a.cfg.RetentionDays,
-			OnlineTimeoutSec: a.cfg.OnlineTimeoutSec,
-			GithubRepo:       a.cfg.GithubRepo,
-			GithubMirror:     a.cfg.GithubMirror,
-			UpdateAutoCheck:  a.cfg.UpdateAutoCheck,
-			UpdateAutoApply:  a.cfg.UpdateAutoApply,
+			Listen:           a.cfg.GetListen(),
+			Token:            a.cfg.GetToken(),
+			DataDir:          a.cfg.GetDataDir(),
+			ReportRatePerMin: a.cfg.GetReportRatePerMin(),
+			RetentionDays:    a.cfg.GetRetentionDays(),
+			OnlineTimeoutSec: a.cfg.GetOnlineTimeoutSec(),
+			GithubRepo:       a.cfg.GetGithubRepo(),
+			GithubMirror:     a.cfg.GetGithubMirror(),
+			UpdateAutoCheck:  a.cfg.GetUpdateAutoCheck(),
+			UpdateAutoApply:  a.cfg.GetUpdateAutoApply(),
 		})
 	case http.MethodPost:
 		a.handleSetConfig(w, r)
@@ -235,7 +243,7 @@ type configPatch struct {
 	UpdateAutoCheck  *bool   `json:"update_auto_check"`
 }
 
-// handleSetConfig 校验并应用 GUI 提交的设置，热生效（listen 除外，需重启），
+// handleSetConfig 校验并应用 GUI 提交的设置，全部热生效（监听地址换端口无需重启），
 // 并以"读原文件 -> 覆盖 -> 原子写回"的方式持久化，保留文件中的其他字段。
 func (a *API) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	var p configPatch
@@ -250,6 +258,7 @@ func (a *API) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ---- 校验 ----
+	newListen := ""
 	if p.Listen != nil {
 		l := strings.TrimSpace(*p.Listen)
 		if _, _, err := net.SplitHostPort(l); err != nil {
@@ -260,6 +269,7 @@ func (a *API) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": msg})
 			return
 		}
+		newListen = l
 	}
 	if p.Token != nil {
 		t := strings.TrimSpace(*p.Token)
@@ -289,51 +299,75 @@ func (a *API) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ---- 端口热切换（先绑定新端口，失败则保留旧端口）----
+	oldListen := a.cfg.GetListen()
+	listenChanged := newListen != "" && newListen != oldListen
+	if listenChanged && a.relisten != nil {
+		if err := a.relisten(newListen); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"ok":      false,
+				"error":   "无法绑定新监听地址 " + newListen + "：" + err.Error() + "（已保留原监听 " + oldListen + "）",
+				"listen":  oldListen,
+				"current": oldListen,
+			})
+			return
+		}
+	}
+
 	// ---- 持久化（先写文件，成功后再改内存，失败时保持原状）----
 	rotated := false
-	restart := false
 	if err := a.persistConfig(p, &rotated); err != nil {
 		log.Printf("[api] 保存设置失败: %v", err)
+		if listenChanged && a.relisten != nil {
+			// 端口已经换过去了，回滚到原端口，避免配置与实际监听不一致
+			if rbErr := a.relisten(oldListen); rbErr != nil {
+				log.Printf("[api] 回滚监听地址到 %s 失败: %v", oldListen, rbErr)
+			}
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "写入配置文件失败: " + err.Error()})
 		return
 	}
-	if p.Listen != nil {
-		if nv := strings.TrimSpace(*p.Listen); nv != a.cfg.Listen {
-			a.cfg.Listen = nv
-			restart = true
-		}
-	}
-	if p.Token != nil {
-		a.cfg.Token = strings.TrimSpace(*p.Token)
-		// 轮换后旧令牌立即失效：内存里的兼容字段也要一起清掉，
-		// 否则旧 device_token / plugin_token 在重启前仍然能通过鉴权
-		a.cfg.DeviceToken = ""
-		a.cfg.PluginToken = ""
-	}
-	if p.ReportRatePerMin != nil {
-		a.cfg.ReportRatePerMin = *p.ReportRatePerMin
-	}
-	if p.RetentionDays != nil {
-		a.cfg.RetentionDays = *p.RetentionDays
-	}
-	if p.OnlineTimeoutSec != nil {
-		a.cfg.OnlineTimeoutSec = *p.OnlineTimeoutSec
-	}
-	if p.GithubMirror != nil {
-		a.cfg.GithubMirror = strings.TrimSpace(*p.GithubMirror)
-	}
-	if p.UpdateAutoCheck != nil {
-		a.cfg.UpdateAutoCheck = *p.UpdateAutoCheck
-	}
 
-	log.Printf("[api] 设置已更新 ip=%s listen=%v token_rotated=%v", remoteIP(r), p.Listen != nil, rotated)
+	// ---- 生效到内存（热更新，无需重启）----
+	a.cfg.Update(func(c *Config) {
+		if newListen != "" {
+			c.Listen = newListen
+		}
+		if p.Token != nil {
+			c.Token = strings.TrimSpace(*p.Token)
+			// 轮换后旧令牌立即失效：内存里的兼容字段也要一起清掉，
+			// 否则旧 device_token / plugin_token 在重启前仍然能通过鉴权
+			c.DeviceToken = ""
+			c.PluginToken = ""
+		}
+		if p.ReportRatePerMin != nil {
+			c.ReportRatePerMin = *p.ReportRatePerMin
+		}
+		if p.RetentionDays != nil {
+			c.RetentionDays = *p.RetentionDays
+		}
+		if p.OnlineTimeoutSec != nil {
+			c.OnlineTimeoutSec = *p.OnlineTimeoutSec
+		}
+		if p.GithubMirror != nil {
+			c.GithubMirror = strings.TrimSpace(*p.GithubMirror)
+		}
+		if p.UpdateAutoCheck != nil {
+			c.UpdateAutoCheck = *p.UpdateAutoCheck
+		}
+	})
+
+	log.Printf("[api] 设置已更新 ip=%s listen=%v listen_changed=%v token_rotated=%v",
+		remoteIP(r), p.Listen != nil, listenChanged, rotated)
 	note := "已保存并即时生效"
-	if restart {
-		note = "监听地址已修改，重启服务后生效"
+	if listenChanged {
+		note = "已保存并即时生效，监听端口已切换到 " + a.cfg.GetListen()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":               true,
-		"restart_required": restart,
+		"restart_required": false,
+		"listen":           a.cfg.GetListen(),
+		"listen_changed":   listenChanged,
 		"note":             note,
 	})
 }
@@ -425,7 +459,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	a.hub.FillOnline([]*DeviceView{view})
 
-	timeout := time.Duration(a.cfg.FreshTimeoutMs) * time.Millisecond
+	timeout := time.Duration(a.cfg.GetFreshTimeoutMs()) * time.Millisecond
 	if t := r.URL.Query().Get("timeout_ms"); t != "" {
 		if n, err := strconv.Atoi(t); err == nil && n >= 500 && n <= 15000 {
 			timeout = time.Duration(n) * time.Millisecond
@@ -440,7 +474,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 	lastReportAt := view.LastReportAt
 	resp["last_report_at"] = lastReportAt
 
-	staleAfter := int64(a.cfg.OnlineTimeoutSec)
+	staleAfter := int64(a.cfg.GetOnlineTimeoutSec())
 	if staleAfter < 300 {
 		staleAfter = 300
 	}
