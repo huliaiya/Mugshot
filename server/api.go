@@ -19,13 +19,14 @@ import (
 // probes / CLI tooling). All plugin-facing endpoints require the plugin
 // token; the HTTP report ingest requires the device token.
 type API struct {
-	cfg   *Config
-	store *Store
-	hub   *Hub
+	cfg     *Config
+	store   *Store
+	hub     *Hub
+	failLog *authFailLimiter
 }
 
 func NewAPI(cfg *Config, store *Store, hub *Hub) *API {
-	return &API{cfg: cfg, store: store, hub: hub}
+	return &API{cfg: cfg, store: store, hub: hub, failLog: newAuthFailLimiter()}
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -81,7 +82,7 @@ func (a *API) deviceAuth(got string) bool {
 func (a *API) requirePlugin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !a.pluginAuth(bearerToken(r)) {
-			log.Printf("[api] 插件鉴权失败 ip=%s path=%s", remoteIP(r), r.URL.Path)
+			a.logAuthFail("插件", r)
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "unauthorized"})
 			return
 		}
@@ -92,11 +93,26 @@ func (a *API) requirePlugin(next http.HandlerFunc) http.HandlerFunc {
 func (a *API) requireDevice(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !a.deviceAuth(bearerToken(r)) {
-			log.Printf("[api] 设备鉴权失败 ip=%s path=%s", remoteIP(r), r.URL.Path)
+			a.logAuthFail("设备", r)
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "unauthorized"})
 			return
 		}
 		next(w, r)
+	}
+}
+
+// logAuthFail 记录鉴权失败。客户端用错 Token 时会持续重试，
+// 不做限流会每几秒刷一条把 journal 冲垮：同一 IP+路径每分钟只记一条，
+// 并带上这段时间内的失败次数。
+func (a *API) logAuthFail(kind string, r *http.Request) {
+	ip := remoteIP(r)
+	key := kind + "|" + ip + "|" + r.URL.Path
+	if ok, count := a.failLog.shouldLog(key); ok {
+		if count > 1 {
+			log.Printf("[api] %s鉴权失败 ip=%s path=%s（过去一分钟失败 %d 次，Token 不匹配）", kind, ip, r.URL.Path, count)
+		} else {
+			log.Printf("[api] %s鉴权失败 ip=%s path=%s（Token 不匹配）", kind, ip, r.URL.Path)
+		}
 	}
 }
 
@@ -289,6 +305,10 @@ func (a *API) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Token != nil {
 		a.cfg.Token = strings.TrimSpace(*p.Token)
+		// 轮换后旧令牌立即失效：内存里的兼容字段也要一起清掉，
+		// 否则旧 device_token / plugin_token 在重启前仍然能通过鉴权
+		a.cfg.DeviceToken = ""
+		a.cfg.PluginToken = ""
 	}
 	if p.ReportRatePerMin != nil {
 		a.cfg.ReportRatePerMin = *p.ReportRatePerMin

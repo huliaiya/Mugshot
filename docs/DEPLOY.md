@@ -44,6 +44,8 @@ curl http://127.0.0.1:8080/health        # 验证服务在跑
 
 > 旧版本配置文件里的 `device_token` / `plugin_token` 仍然可用，服务端启动时会自动迁移为统一的 `token` 字段（优先取 plugin_token，其次 device_token），无需手工修改。
 
+> v1.0.19 起，服务端轮换 Token 后旧 Token 立即失效（含配置文件里的兼容字段），GUI 与插件收到 401 时会自动从本机服务端（`/local/config`，仅回环可达）同步新 Token 并重试一次，无需手工复制。指向远程服务端时自动同步不可用，请在"接入信息"页复制 Token 手动填写。
+
 升级：下载新 .deb 再次 `apt install ./...` 即可，配置与数据自动保留。彻底卸载：`sudo apt purge mugshot-server`（配置/数据需按提示手动删除）。
 
 > v1.0.18 修复了 GUI"设置"页保存提示 HTTP 500 的问题（systemd 单元未放行 `/etc/mugshot`，且目录归属不是服务用户）。升级后 postinst 会自动修正权限并重启服务；如仍失败，执行 `sudo systemctl daemon-reload && sudo systemctl restart mugshot-server`。
@@ -237,6 +239,8 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 |------|------|
 | App 一直"连接失败" | 检查 server_url 可达（`curl /health`）、App 内 Token 与服务端一致、服务器防火墙放行端口 |
 | 插件日志无 WS 订阅 | `config/mugshot.yaml` 的 plugin_token 与服务端 token 不一致；或 Node < 22 且无 ws 包（`npm ls ws`） |
+| 服务端日志刷「插件鉴权失败」 | 插件与服务端 Token 不一致。v1.0.19 起同机部署会自动同步新 Token；远程服务端请在"接入信息"页复制 Token 填到 `config/mugshot.yaml` 的 `token` 字段。同一 IP+路径的失败日志每分钟只记一条并汇总次数 |
+| GUI 报「HTTP 401: unauthorized」 | GUI 缓存的 Token 已过期。v1.0.19 起同机部署会自动同步新 Token 并重试；远程服务端请在"接入信息"页手动填写后点"生成新 Token"或保存 |
 | 查询永远显示 CACHE | 设备未在线/未授予使用情况权限/被厂商杀后台（看 App 权限面板与通知栏） |
 | 回复无图片 | Yunzai 渲染器未配置（puppeteer），检查 `config/renderer.yaml` |
 | 按钮不显示 | 仅 QQBot 适配器支持按钮，其他协议端正常降级 |

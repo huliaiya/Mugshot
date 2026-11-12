@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -62,8 +63,26 @@ type versionResp struct {
 
 type client struct {
 	base string
-	tok  string
 	hc   *http.Client
+	// refresh 在服务端返回 401 时被调用：尝试从本机服务端重新取得统一 Token。
+	// 服务端换过 Token 后，本地缓存的旧值会让所有鉴权请求失败，
+	// 没有这条自愈路径时界面会永久卡在 401，连"生成新 Token"都点不动。
+	refresh func() (string, error)
+
+	mu  sync.Mutex
+	tok string
+}
+
+func (c *client) token() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tok
+}
+
+func (c *client) setToken(tok string) {
+	c.mu.Lock()
+	c.tok = tok
+	c.mu.Unlock()
 }
 
 func (c *client) get(path string, needAuth bool) ([]byte, error) {
@@ -80,27 +99,42 @@ func (c *client) postJSON(path string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(c.base, "/")+path, bytes.NewReader(data))
-	if err != nil {
+	return c.doWithBody(http.MethodPost, path, true, data)
+}
+
+func (c *client) doWithBody(method, path string, needAuth bool, body []byte) ([]byte, error) {
+	out, code, err := c.raw(method, path, needAuth, body)
+	if err == nil {
+		return out, nil
+	}
+	newTok, rerr := c.recoverToken(needAuth, code)
+	if newTok == "" {
+		if rerr != nil {
+			return nil, fmt.Errorf("%v（%v）", err, rerr)
+		}
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.tok != "" {
-		req.Header.Set("Authorization", "Bearer "+c.tok)
-	}
-	resp, err := c.hc.Do(req)
+	c.setToken(newTok)
+	out, _, err = c.raw(method, path, needAuth, body)
 	if err != nil {
 		return nil, err
-	}
-	defer resp.Body.Close()
-	out, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, httpError(resp.StatusCode, out)
 	}
 	return out, nil
+}
+
+// recoverToken 在鉴权失败时尝试重新取得 Token，成功返回新 Token。
+func (c *client) recoverToken(needAuth bool, code int) (string, error) {
+	if !needAuth || code != http.StatusUnauthorized || c.refresh == nil {
+		return "", nil
+	}
+	tok, err := c.refresh()
+	if err != nil || tok == "" {
+		if err == nil {
+			err = errors.New("未取得 Token")
+		}
+		return "", fmt.Errorf("Token 已失效，且无法自动同步：%w", err)
+	}
+	return tok, nil
 }
 
 // httpError 把服务端返回的 JSON 错误信息带出来，便于界面直接显示失败原因。
@@ -119,26 +153,39 @@ func httpError(code int, body []byte) error {
 }
 
 func (c *client) do(method, path string, needAuth bool) ([]byte, error) {
-	req, err := http.NewRequest(method, strings.TrimRight(c.base, "/")+path, nil)
-	if err != nil {
-		return nil, err
+	return c.doWithBody(method, path, needAuth, nil)
+}
+
+func (c *client) raw(method, path string, needAuth bool, body []byte) ([]byte, int, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
 	}
-	if needAuth && c.tok != "" {
-		req.Header.Set("Authorization", "Bearer "+c.tok)
+	req, err := http.NewRequest(method, strings.TrimRight(c.base, "/")+path, reader)
+	if err != nil {
+		return nil, 0, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if needAuth {
+		if tok := c.token(); tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	out, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, resp.StatusCode, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, httpError(resp.StatusCode, out)
+		return nil, resp.StatusCode, httpError(resp.StatusCode, out)
 	}
-	return out, nil
+	return out, resp.StatusCode, nil
 }
 
 const tabOverview = "概览"
@@ -170,11 +217,13 @@ type ui struct {
 	setMirror    *widget.Entry
 	setAutoChk   *widget.Check
 	setResult    *widget.Label
+	setSaveBtn   *widget.Button
 	setLoaded    bool
 
 	mu           sync.Mutex
 	conf         guiConf
 	cli          *client
+	tokSync      tokenSync
 	quit         chan struct{}
 	once         sync.Once
 	lastStatusTx string
@@ -214,26 +263,21 @@ func main() {
 		u.tokenDev.SetText(u.conf.PluginToken)
 	}
 
-	// 缺少 Token（首次启动或配置被清空）时，从本机服务端免授权读取。
-	// /local/config 仅接受回环连接：GUI 与服务端同机时静默完成，无授权弹窗。
-	if u.conf.PluginToken == "" {
-		base := u.conf.ServerURL
-		go func() {
-			tok, err := fetchLocalToken(base)
-			fyne.Do(func() {
-				if err != nil {
+	// 与本机服务端同机时自动读取统一 Token。
+	// 服务端换过 Token 后本地缓存的旧值会让所有鉴权请求失败，
+	// 启动时重读一次即可自动恢复，不必再让用户手工复制。
+	go func() {
+		_, err := u.refreshTokenForClient()
+		fyne.Do(func() {
+			if err != nil {
+				if u.conf.PluginToken == "" {
 					u.ctlResult.SetText("未自动获取到 Token（仅限与本机服务端同机），请在\"接入信息\"页手动填写")
-					return
 				}
-				u.mu.Lock()
-				c := u.conf
-				u.mu.Unlock()
-				c.PluginToken = tok
-				u.applyConf(c)
-				u.ctlResult.SetText("已自动读取本机服务 Token")
-			})
-		}()
-	}
+				return
+			}
+			u.ctlResult.SetText("已自动读取本机服务 Token")
+		})
+	}()
 
 	u.startPolling()
 	w.SetCloseIntercept(func() {
@@ -246,14 +290,33 @@ func main() {
 func (u *ui) newClient() *client {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return &client{base: u.conf.ServerURL, tok: u.conf.PluginToken, hc: &http.Client{Timeout: 4 * time.Second}}
+	return &client{
+		base:    u.conf.ServerURL,
+		tok:     u.conf.PluginToken,
+		hc:      &http.Client{Timeout: 4 * time.Second},
+		refresh: u.refreshTokenForClient,
+	}
+}
+
+// client 读取当前客户端。cli 会被轮换（Token 同步、配置变更），
+// 读取时统一加锁，避免轮询线程与界面线程并发读写。
+func (u *ui) client() *client {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.cli
+}
+
+func (u *ui) setClient(c *client) {
+	u.mu.Lock()
+	u.cli = c
+	u.mu.Unlock()
 }
 
 func (u *ui) applyConf(c guiConf) {
 	u.mu.Lock()
 	u.conf = c
-	u.cli = &client{base: c.ServerURL, tok: c.PluginToken, hc: &http.Client{Timeout: 4 * time.Second}}
 	u.mu.Unlock()
+	u.setClient(u.newClient())
 	u.urlEntry.SetText(c.ServerURL)
 	u.tokenDev.SetText(c.PluginToken)
 	_ = saveConf(c)
@@ -263,10 +326,72 @@ func (u *ui) applyConf(c guiConf) {
 func (u *ui) updateToken(tok string) {
 	u.mu.Lock()
 	u.conf.PluginToken = tok
-	u.cli = &client{base: u.conf.ServerURL, tok: tok, hc: &http.Client{Timeout: 4 * time.Second}}
+	c := u.conf
 	u.mu.Unlock()
+	u.setClient(u.newClient())
 	u.tokenDev.SetText(tok)
-	_ = saveConf(u.conf)
+	if u.setToken != nil {
+		u.setToken.SetText(tok)
+	}
+	_ = saveConf(c)
+}
+
+// tokenSync 记录最近一次 Token 自动同步的结果。
+// 服务端不可达时每轮轮询都会触发 401 自愈，冷却几秒可避免重复请求。
+type tokenSync struct {
+	mu      sync.Mutex
+	lastTry time.Time
+	lastErr error
+}
+
+// refreshTokenFromLocal 从本机服务端免授权读取统一 Token。
+// 服务端换过 Token 后，GUI 与插件手里的旧值会失效，这条路径负责自动恢复。
+func (u *ui) refreshTokenFromLocal() (string, error) {
+	u.tokSync.mu.Lock()
+	defer u.tokSync.mu.Unlock()
+	if u.tokSync.lastErr != nil && time.Since(u.tokSync.lastTry) < 5*time.Second {
+		return "", u.tokSync.lastErr
+	}
+	u.tokSync.lastTry = time.Now()
+	u.tokSync.lastErr = nil
+
+	u.mu.Lock()
+	base := u.conf.ServerURL
+	u.mu.Unlock()
+	host := ""
+	if pu, err := url.Parse(base); err == nil {
+		host = pu.Hostname()
+	}
+	if !isLocalHost(host) {
+		u.tokSync.lastErr = errors.New("服务端不在本机，无法自动读取 Token")
+		return "", u.tokSync.lastErr
+	}
+	var lastErr error
+	for _, b := range localBaseCandidates(base) {
+		tok, err := fetchLocalToken(b)
+		if err == nil && tok != "" {
+			return tok, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("未取得 Token")
+	}
+	u.tokSync.lastErr = lastErr
+	return "", lastErr
+}
+
+// refreshTokenForClient 是客户端 401 时的自愈回调：后台线程里取回新 Token，
+// 界面上的 Token 输入框回到主线程更新。
+func (u *ui) refreshTokenForClient() (string, error) {
+	tok, err := u.refreshTokenFromLocal()
+	if err != nil {
+		return "", err
+	}
+	fyne.Do(func() { u.updateToken(tok) })
+	return tok, nil
 }
 
 // randomToken 生成 48 位十六进制 Token（与服务端默认格式一致）。
@@ -296,17 +421,20 @@ func (u *ui) refreshSettings() {
 		return
 	}
 	u.setResult.SetText("正在读取服务端设置……")
-	cli := u.cli
+	cli := u.client()
 	go func() {
 		data, err := cli.get("/admin/config", true)
 		fyne.Do(func() {
 			if err != nil {
-				u.setResult.SetText("读取设置失败：" + err.Error() + "（需要先在\"接入信息\"页保存 Token）")
+				u.setLoaded = false
+				u.setSaveBtn.Disable()
+				u.setResult.SetText("读取服务端设置失败：" + err.Error() + "。请点\"重新读取\"重试（GUI 与服务端同机时会自动同步 Token）")
 				return
 			}
 			var s adminSettingsResp
 			if json.Unmarshal(data, &s) != nil || !s.OK {
-				u.setResult.SetText("读取设置失败：响应格式异常")
+				u.setSaveBtn.Disable()
+				u.setResult.SetText("读取服务端设置失败：响应格式异常")
 				return
 			}
 			u.setListen.SetText(s.Listen)
@@ -317,7 +445,8 @@ func (u *ui) refreshSettings() {
 			u.setMirror.SetText(s.GithubMirror)
 			u.setAutoChk.SetChecked(s.UpdateAutoCheck)
 			u.setLoaded = true
-			u.setResult.SetText("")
+			u.setSaveBtn.Enable()
+			u.setResult.SetText("已读取服务端当前配置")
 		})
 	}()
 }
@@ -354,7 +483,7 @@ func (u *ui) saveSettings() {
 		return
 	}
 	u.setResult.SetText("正在保存……")
-	cli := u.cli
+	cli := u.client()
 	req := map[string]any{
 		"listen":              strings.TrimSpace(u.setListen.Text),
 		"token":               tok,
@@ -384,7 +513,7 @@ func (u *ui) saveSettings() {
 				u.setResult.SetText("保存失败：" + note)
 				return
 			}
-			if tok != cli.tok {
+			if tok != cli.token() {
 				u.updateToken(tok)
 			}
 			txt := resp.Note
@@ -405,7 +534,7 @@ func (u *ui) rotateToken() {
 		return
 	}
 	u.setResult.SetText("正在生成新 Token……")
-	cli := u.cli
+	cli := u.client()
 	go func() {
 		data, err := cli.postJSON("/admin/config", map[string]any{"token": tok})
 		fyne.Do(func() {
@@ -519,7 +648,23 @@ func (u *ui) build() fyne.CanvasObject {
 			return
 		}
 		u.applyConf(c)
-		u.ctlResult.SetText("连接信息已保存")
+		u.setLoaded = false
+		if c.PluginToken != "" {
+			u.ctlResult.SetText("连接信息已保存")
+			return
+		}
+		// 未填 Token 时尝试从本机服务端免授权读取
+		go func() {
+			tok, err := u.refreshTokenFromLocal()
+			fyne.Do(func() {
+				if err != nil {
+					u.ctlResult.SetText("连接信息已保存；未自动获取到 Token（仅限与本机服务端同机），请在\"接入信息\"页手动填写")
+					return
+				}
+				u.updateToken(tok)
+				u.ctlResult.SetText("连接信息已保存，已自动读取本机服务 Token")
+			})
+		}()
 	})
 	copyToken := widget.NewButton("复制 Token", func() {
 		fyne.CurrentApp().Clipboard().SetContent(strings.TrimSpace(u.tokenDev.Text))
@@ -587,7 +732,8 @@ func (u *ui) build() fyne.CanvasObject {
 	genTokBtn := widget.NewButton("生成新 Token", func() {
 		u.rotateToken()
 	})
-	setSaveBtn := widget.NewButton("保存设置", func() { u.saveSettings() })
+	u.setSaveBtn = widget.NewButton("保存设置", func() { u.saveSettings() })
+	u.setSaveBtn.Disable()
 	setReloadBtn := widget.NewButton("重新读取", func() {
 		u.setLoaded = false
 		u.refreshSettings()
@@ -600,7 +746,7 @@ func (u *ui) build() fyne.CanvasObject {
 		widget.NewCard("服务端设置", "", container.NewVBox(
 			setHint,
 			form,
-			container.NewHBox(setSaveBtn, genTokBtn, setReloadBtn),
+			container.NewHBox(u.setSaveBtn, genTokBtn, setReloadBtn),
 			u.setResult,
 		)),
 	))
@@ -643,7 +789,7 @@ func pollLoop(stop <-chan struct{}, interval time.Duration, fn func()) {
 }
 
 func (u *ui) refreshHealth() {
-	cli := u.cli
+	cli := u.client()
 	data, err := cli.get("/health", false)
 	if err != nil {
 		tx := fmt.Sprintf("无法连接 %s（%v）", cli.base, err)
@@ -673,7 +819,7 @@ func (u *ui) refreshHealth() {
 }
 
 func (u *ui) refreshDevices() {
-	cli := u.cli
+	cli := u.client()
 	data, err := cli.get("/devices", true)
 	if err != nil {
 		return
@@ -721,7 +867,7 @@ func deviceSig(rows []deviceRow) string {
 
 func (u *ui) checkUpdate() {
 	u.verLabel.SetText("正在检查更新……")
-	data, err := u.cli.get("/version", false)
+	data, err := u.client().get("/version", false)
 	if err != nil {
 		u.verLabel.SetText("检查失败：" + err.Error())
 		return
@@ -741,7 +887,7 @@ func (u *ui) checkUpdate() {
 // doUpdate 走服务端 POST /admin/update 自更新链路：
 // 服务端后台下载新版本替换自身二进制后退出，systemd Restart=always 拉起新版本。
 func (u *ui) doUpdate() {
-	cli := u.cli
+	cli := u.client()
 	fyne.Do(func() { u.verLabel.SetText("正在请求更新……") })
 
 	data, err := cli.post("/admin/update", true)
