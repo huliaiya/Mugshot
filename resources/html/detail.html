@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
+  .card { padding: 34px 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .head .title { font-size: 30px; font-weight: 700; }
+  .head .sub { font-size: 15px; color: #8b93a7; margin-top: 6px; }
+  .badge { font-size: 15px; padding: 5px 14px; border-radius: 999px; font-weight: 600; }
+  .badge.live { background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); }
+  .badge.cache { background: rgba(255,183,77,.13); color: #ffb74d; border: 1px solid rgba(255,183,77,.4); }
+  .badge.none { background: rgba(255,99,99,.13); color: #ff6363; border: 1px solid rgba(255,99,99,.4); }
+  .note { font-size: 14px; color: #ffb74d; background: rgba(255,183,77,.08); border: 1px dashed rgba(255,183,77,.35); border-radius: 10px; padding: 9px 14px; margin-bottom: 18px; }
+  .section { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 6px 22px; margin-bottom: 16px; }
+  .section .row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #1f2a44; font-size: 16px; }
+  .section .row:last-child { border-bottom: none; }
+  .section .row .k { color: #8b93a7; }
+  .section .row .v { color: #e8ecf4; font-weight: 600; text-align: right; max-width: 400px; word-break: break-all; }
+  .section h3 { font-size: 16px; color: #7fb2ff; padding: 12px 0 4px; }
+  table.hist { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 14px; }
+  table.hist th { color: #8b93a7; font-weight: 500; text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a3550; }
+  table.hist td { padding: 8px; color: #c8d0e0; border-bottom: 1px solid #1f2a44; }
+  table.hist tr:last-child td { border-bottom: none; }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div>
+      <div class="title">{{ title }}</div>
+      <div class="sub">{{ device_name }}{{ if device_model }} · {{ device_model }}{{ /if }}</div>
+    </div>
+    <div class="badge {{ source_class }}">{{ source_text }}</div>
+  </div>
+
+  {{ if note }}<div class="note">{{ note }}</div>{{ /if }}
+
+  <div class="section">
+    <div class="row"><span class="k">设备名称</span><span class="v">{{ device_name }}</span></div>
+    <div class="row"><span class="k">设备 ID</span><span class="v">{{ device_id_short }}</span></div>
+    <div class="row"><span class="k">设备型号</span><span class="v">{{ device_model }}</span></div>
+    <div class="row"><span class="k">连接状态</span><span class="v">{{ online ? "在线" : "离线" }}</span></div>
+    <div class="row"><span class="k">首次接入</span><span class="v">{{ first_seen }}</span></div>
+    <div class="row"><span class="k">累计上报</span><span class="v">{{ report_count }} 次</span></div>
+    <div class="row"><span class="k">实时唤醒</span><span class="v">{{ fresh_count }} 次</span></div>
+    <div class="row"><span class="k">最后上报</span><span class="v">{{ report_time }}</span></div>
+  </div>
+
+  {{ if has_report }}
+  <div class="section">
+    <h3>当前状态</h3>
+    <div class="row"><span class="k">正在使用</span><span class="v">{{ foreground_app }}</span></div>
+    <div class="row"><span class="k">屏幕 / 网络</span><span class="v">{{ screen }} · {{ network }}</span></div>
+    <div class="row"><span class="k">电池 / 充电</span><span class="v">{{ battery }}% · {{ charging }}</span></div>
+  </div>
+  {{ /if }}
+
+  {{ if recent && recent.length }}
+  <div class="section">
+    <h3>最近上报记录</h3>
+    <table class="hist">
+      <tr><th>时间</th><th>应用</th><th>屏幕</th><th>电量</th></tr>
+      {{ each recent item }}
+      <tr>
+        <td>{{ item.time }}</td>
+        <td>{{ item.app }}</td>
+        <td>{{ item.screen }}</td>
+        <td>{{ item.battery }}</td>
+      </tr>
+      {{ /each }}
+    </table>
+  </div>
+  {{ /if }}
+
+  <div class="meta"><span>Mugshot · 设备详情</span><span>{{ device_id_short }}</span></div>
+</div>
+</body>
+</html>

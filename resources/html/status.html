@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
+  .card { padding: 34px 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .head .title { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
+  .head .sub { font-size: 15px; color: #8b93a7; margin-top: 6px; }
+  .badge { font-size: 15px; padding: 5px 14px; border-radius: 999px; font-weight: 600; }
+  .badge.live { background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); }
+  .badge.cache { background: rgba(255,183,77,.13); color: #ffb74d; border: 1px solid rgba(255,183,77,.4); }
+  .badge.none { background: rgba(255,99,99,.13); color: #ff6363; border: 1px solid rgba(255,99,99,.4); }
+  .status-note { font-size: 14px; color: #ffb74d; background: rgba(255,183,77,.08); border: 1px dashed rgba(255,183,77,.35); border-radius: 10px; padding: 9px 14px; margin-bottom: 18px; }
+  .status-note.warn { color: #ff8a8a; background: rgba(255,99,99,.08); border-color: rgba(255,99,99,.35); }
+  .app-hero { background: linear-gradient(135deg, #1b2437 0%, #151c2c 100%); border: 1px solid #2a3550; border-radius: 18px; padding: 26px 28px; margin-bottom: 18px; }
+  .app-hero .label { font-size: 14px; color: #8b93a7; margin-bottom: 8px; }
+  .app-hero .app { font-size: 30px; font-weight: 700; color: #7fb2ff; word-break: break-all; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .cell { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 16px 20px; }
+  .cell .label { font-size: 14px; color: #8b93a7; margin-bottom: 8px; }
+  .cell .value { font-size: 22px; font-weight: 600; }
+  .battery-row { display: flex; align-items: center; gap: 14px; }
+  .battery-bar { flex: 1; height: 12px; background: #0d1320; border-radius: 999px; overflow: hidden; border: 1px solid #2a3550; }
+  .battery-fill { height: 100%; border-radius: 999px; }
+  .battery-fill.hi { background: linear-gradient(90deg, #3dd598, #6ee7b7); }
+  .battery-fill.mid { background: linear-gradient(90deg, #ffb74d, #ffd54f); }
+  .battery-fill.lo { background: linear-gradient(90deg, #ff6363, #ff8a8a); }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div>
+      <div class="title">{{ title }}</div>
+      <div class="sub">{{ device_name }}{{ if device_model }} · {{ device_model }}{{ /if }}</div>
+    </div>
+    <div class="badge {{ source_class }}">{{ source_text }}</div>
+  </div>
+
+  {{ if note }}<div class="status-note {{ class }}">{{ note }}</div>{{ /if }}
+
+  {{ if has_report }}
+  <div class="app-hero">
+    <div class="label">正在使用</div>
+    <div class="app">{{ foreground_app }}</div>
+  </div>
+  <div class="grid">
+    <div class="cell">
+      <div class="label">屏幕状态</div>
+      <div class="value">{{ screen }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">网络</div>
+      <div class="value">{{ network }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">电池</div>
+      <div class="battery-row">
+        <div class="battery-bar"><div class="battery-fill {{ battery_class }}" style="width: {{ battery_width }}%;"></div></div>
+        <div class="value">{{ battery }}%</div>
+      </div>
+    </div>
+    <div class="cell">
+      <div class="label">充电状态</div>
+      <div class="value">{{ charging }}</div>
+    </div>
+  </div>
+  {{ else }}
+  <div class="app-hero">
+    <div class="label">正在使用</div>
+    <div class="app">暂无上报数据</div>
+  </div>
+  <div class="status-note warn">该设备尚未上报过数据，请确认 App 已运行并联网。</div>
+  {{ /if }}
+
+  <div class="meta">
+    <span>上报时间：{{ report_time }}</span>
+    <span>设备 ID：{{ device_id_short }}</span>
+  </div>
+</div>
+</body>
+</html>
