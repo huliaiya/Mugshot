@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -229,6 +230,10 @@ type ui struct {
 	lastStatusTx string
 	lastDevSig   string
 	logMode      string // "restart" 只看本次运行（默认） | "24h" 最近 24 小时
+
+	// 最近一次 /health 是否可达：离线时放慢轮询并暂停设备轮询，减少无效请求；
+	// 恢复在线时立即刷新一次设备列表。
+	online atomic.Bool
 }
 
 func main() {
@@ -818,21 +823,48 @@ func (u *ui) build() fyne.CanvasObject {
 	return u.tabs
 }
 
+// 轮询节奏：在线时保持较快的刷新（2s 状态 / 3s 设备），
+// 离线时放慢到 6s 且跳过设备轮询，避免服务不可达时每 2 秒一次的无谓请求。
+const (
+	healthOnlineInterval  = 2 * time.Second
+	healthOfflineInterval = 6 * time.Second
+	deviceOnlineInterval  = 3 * time.Second
+	deviceOfflineInterval = 6 * time.Second
+)
+
 func (u *ui) startPolling() {
-	go pollLoop(u.quit, 2*time.Second, u.refreshHealth)
-	go pollLoop(u.quit, 3*time.Second, u.refreshDevices)
+	go u.healthLoop()
+	go u.deviceLoop()
 }
 
-func pollLoop(stop <-chan struct{}, interval time.Duration, fn func()) {
-	fn()
-	t := time.NewTicker(interval)
-	defer t.Stop()
+func (u *ui) healthLoop() {
 	for {
+		u.refreshHealth()
+		d := healthOnlineInterval
+		if !u.online.Load() {
+			d = healthOfflineInterval
+		}
 		select {
-		case <-stop:
+		case <-u.quit:
 			return
-		case <-t.C:
-			fn()
+		case <-time.After(d):
+		}
+	}
+}
+
+func (u *ui) deviceLoop() {
+	for {
+		if u.online.Load() {
+			u.refreshDevices()
+		}
+		d := deviceOnlineInterval
+		if !u.online.Load() {
+			d = deviceOfflineInterval
+		}
+		select {
+		case <-u.quit:
+			return
+		case <-time.After(d):
 		}
 	}
 }
@@ -841,6 +873,7 @@ func (u *ui) refreshHealth() {
 	cli := u.client()
 	data, err := cli.get("/health", false)
 	if err != nil {
+		u.online.Store(false)
 		tx := fmt.Sprintf("无法连接 %s（%v）", cli.base, err)
 		// 内容不变就不排队到界面线程，离线时每 2 秒一次的重绘会拖慢点击响应
 		u.mu.Lock()
@@ -858,8 +891,13 @@ func (u *ui) refreshHealth() {
 		})
 		return
 	}
+	// 服务已可达即视为在线；离线→在线切换时立即刷新一次设备列表
+	regained := !u.online.Swap(true)
 	var h healthResp
 	if json.Unmarshal(data, &h) != nil || !h.OK {
+		if regained {
+			go u.refreshDevices()
+		}
 		return
 	}
 	tx := fmt.Sprintf("版本 %s · 已运行 %s · 在线设备 %d / %d",
@@ -872,12 +910,18 @@ func (u *ui) refreshHealth() {
 	}
 	u.mu.Unlock()
 	if same {
+		if regained {
+			go u.refreshDevices()
+		}
 		return
 	}
 	fyne.Do(func() {
 		u.setDot(true)
 		u.statusLn.SetText(tx)
 	})
+	if regained {
+		go u.refreshDevices()
+	}
 }
 
 func (u *ui) refreshDevices() {
