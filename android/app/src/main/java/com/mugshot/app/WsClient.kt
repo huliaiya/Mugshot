@@ -168,6 +168,9 @@ class WsClient(
         val now = System.currentTimeMillis()
         val dedup = now - lastRequestTs < REQUEST_DEDUP_MS
         lastRequestTs = now
+        if (!StatusCollector.hasUsageAccess(context)) {
+            LogStore.log("ws", "提示：未授予「使用情况访问权限」，前台应用字段将为空；可到 设置→使用情况访问 授权")
+        }
         // 复用采集或重新采集：2 秒内视为同一次场景，避免频繁唤醒设备
         val snapshot = StatusCollector.collect(context)
         sendReport(webSocket, requestId, snapshot)
@@ -196,7 +199,7 @@ class WsClient(
         webSocket.send(report.toString())
         Prefs.lastReportTs = System.currentTimeMillis()
         val kind = if (!requestId.isNullOrEmpty()) "响应服务器主动要求" else "定时上报"
-        LogStore.log("ws", kind + "已上报 app=" + s.foregroundApp + " 电量=" + s.batteryLevel + "% 屏幕=" + s.screenOn + " 网络=" + s.networkType)
+        LogStore.log("ws", kind + "已上报：" + StatusCollector.describe(context))
     }
 
     private fun startTimers(webSocket: WebSocket) {

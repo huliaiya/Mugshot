@@ -351,6 +351,10 @@ export class Mugshot extends plugin {
     if (cooldownNote && !data.note) data.note = cooldownNote
     data.server = pluginFooter()
     data.backdrop = getBackdrop()
+    // 设备未上报过 / 缓存为空时，日志说明原因，避免群里误以为“查不到”
+    if (!data.has_report) {
+      logger.debug(`[Mugshot] 设备 ${name} 暂无上报数据（尚未接入或从未上报），已按空状态展示`)
+    }
 
     const img = await renderCard(this.e, tpl, data)
     const rows = isQQBot(this.e)

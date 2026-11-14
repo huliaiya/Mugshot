@@ -93,7 +93,11 @@ export function maskRequestID(id) {
 
 export function foregroundText(payload) {
   const p = payload || {}
-  return p.foreground_app || p.foreground_package || "未知（可能息屏或刚解锁）"
+  if (p.foreground_app) return p.foreground_app
+  if (p.foreground_package) return p.foreground_package
+  // 区分“未授权/息屏拿不到”与“确实无应用”，避免笼统的“未知”
+  if (p.screen_on === false) return "未获取（息屏中）"
+  return "未获取（需授权使用情况访问 / 息屏）"
 }
 
 /** 设备 -> 列表/详情通用视图字段 */
@@ -169,8 +173,8 @@ export function allStatusView(d) {
   const level = batteryLevel(p)
   return {
     ...deviceView(d),
-    appText: p.foreground_app || p.foreground_package || "无数据",
-    batteryText: level === null ? "无数据" : `${level}%`,
+    appText: foregroundText(p),
+    batteryText: level === null ? "无数据（本机读不到电量）" : `${level}%`,
     battery_class: batteryClass(level),
     battery_width: level === null ? 0 : Math.min(100, Math.max(4, level)),
     screenText: p.screen_on === undefined ? "无数据" : screenText(p.screen_on),

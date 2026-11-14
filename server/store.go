@@ -15,6 +15,28 @@ import (
 func timeNowUnixNano() int64 { return time.Now().UnixNano() }
 func nowMs() int64           { return time.Now().UnixMilli() }
 
+// missingPayloadFields 列出本次上报里没采集到的字段及原因，供日志提示。
+// 空表示本次上报字段齐全。与 Android 端 StatusCollector.missingFields 对应。
+func missingPayloadFields(p *ReportPayload) string {
+	if p == nil {
+		return "（空 payload）"
+	}
+	var missing []string
+	if p.ForegroundApp == "" && p.ForegroundPackage == "" {
+		missing = append(missing, "前台应用(未授权使用情况访问权限/息屏)")
+	}
+	if p.BatteryLevel < 0 {
+		missing = append(missing, "电池电量(本机读不到)")
+	}
+	if p.NetworkType == "" || p.NetworkType == "none" {
+		missing = append(missing, "网络(当前无活动网络)")
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return " 缺失字段: " + strings.Join(missing, "、")
+}
+
 // ReportPayload is the minimal device status snapshot. Fields are collected
 // automatically by the Android app; nothing beyond what the feature needs is
 // ever uploaded (no user input, no screen text, no clipboard).
