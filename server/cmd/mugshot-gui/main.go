@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,12 +27,16 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 //go:embed icon.svg
 var iconSVG []byte
+
+//go:embed icon.png
+var iconPNG []byte
 
 type healthResp struct {
 	OK            bool   `json:"ok"`
@@ -290,11 +295,51 @@ func main() {
 	}()
 
 	u.startPolling()
-	w.SetCloseIntercept(func() {
-		u.once.Do(func() { close(u.quit) })
-		w.Close()
-	})
+	// 有系统托盘时：关闭窗口只隐藏，进程继续在后台运行，真正退出走托盘菜单；
+	// 不支持托盘的环境（如无桌面会话）退回"关窗即退出"，避免窗口消失后无从恢复。
+	if u.setupTray(a, w) {
+		w.SetCloseIntercept(func() { w.Hide() })
+	} else {
+		w.SetCloseIntercept(func() {
+			u.stop()
+			w.Close()
+		})
+	}
 	w.ShowAndRun()
+}
+
+// setupTray 把窗口收进系统托盘，托盘菜单提供"显示主窗口"与"退出"。
+// 设置托盘菜单后，Fyne 在关闭最后一个窗口时不再退出应用，
+// 配合关闭拦截即可实现"关窗即最小化到托盘、后台继续运行"。
+// 返回是否成功启用托盘。
+func (u *ui) setupTray(a fyne.App, w fyne.Window) bool {
+	desk, ok := a.(desktop.App)
+	if !ok {
+		return false
+	}
+	// Linux 托盘依赖 DBus（StatusNotifier）。无会话总线时（纯 SSH/无桌面环境）
+	// 不启用托盘，否则关窗后既看不到窗口、也没有托盘图标可恢复。
+	if runtime.GOOS == "linux" && os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+		return false
+	}
+	desk.SetSystemTrayIcon(fyne.NewStaticResource("mugshot.png", iconPNG))
+	show := fyne.NewMenuItem("显示主窗口", func() {
+		w.Show()
+		w.RequestFocus()
+	})
+	quit := fyne.NewMenuItem("退出", func() {
+		u.stop()
+		a.Quit()
+	})
+	// IsQuit 让 Fyne 复用这一项作为退出入口，避免自动追加一个英文 Quit 菜单项。
+	quit.IsQuit = true
+	desk.SetSystemTrayMenu(fyne.NewMenu("Mugshot", show, fyne.NewMenuItemSeparator(), quit))
+	return true
+}
+
+// stop 通知所有轮询协程退出（只触发一次）。
+func (u *ui) stop() {
+	u.once.Do(func() { close(u.quit) })
 }
 
 func (u *ui) newClient() *client {
