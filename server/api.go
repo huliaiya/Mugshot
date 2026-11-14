@@ -124,12 +124,44 @@ func (a *API) logAuthFail(kind string, r *http.Request) {
 	}
 }
 
+// remoteIP 解析请求的远端 IP。
+//
+// 直连 peer 为回环地址（127.0.0.1 / ::1）时，认为本服务被本机反向代理
+// （nginx / caddy）以回环转发，此时从 X-Forwarded-For 取最左端（原始客户端）
+// IP；直连 peer 为回环以外的地址时**不信任** X-Forwarded-For，直接返回 peer
+// 地址——否则公网客户端可伪造该头让 remoteIP 返回任意值，绕过
+// handleLocalConfig 的"仅回环可读 Token"限制。
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		// SplitHostPort 对无端口的裸 IP 会报错；此时 RemoteAddr 本身即 host
+		host = r.RemoteAddr
+	}
+	if !isLoopbackHost(host) {
+		return host
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for _, p := range parts {
+			candidate := strings.TrimSpace(p)
+			if candidate != "" {
+				return candidate
+			}
+		}
 	}
 	return host
+}
+
+// isLoopbackHost 判断 host 是否为回环地址（127.0.0.1 / ::1 / 127.x 等）。
+// IPv6 的 r.RemoteAddr 形如 "[::1]:41000"，SplitHostPort 已剥离为 "::1"，可正常解析。
+func isLoopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
