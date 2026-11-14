@@ -1,129 +1,96 @@
-// Mugshot 插件自更新：
-//  1) 优先 git pull（插件目录本身是 git 仓库或位于 git 仓库内的场景）
-//  2) 否则从 GitHub Releases 下载 mugshot-plugin.tar.gz 覆盖安装
-// 更新检查带故障转移：GitHub API 失败时回退到 releases/latest 重定向解析
+// Mugshot 插件自更新：插件目录是一份 git 检出，更新即"拉取 main 分支源码覆盖本地"
+//  - 更新判定：比较本地 HEAD 与远端 main 的最新提交，不同即可更新（版本展示用短哈希）
+//  - 更新方式：git fetch <远端> main && git reset --hard FETCH_HEAD（拉源码覆盖工作区）
+//  - 非 git 目录（如用 tar 包安装）：直接报错，要求改用 git clone -b main 安装
+// 远端地址优先取本地 origin；缺失时回退到配置的 github_repo
 import { exec } from "node:child_process"
 import { promisify } from "node:util"
 import fs from "node:fs"
 import path from "node:path"
-import os from "node:os"
 import { fileURLToPath } from "node:url"
-import { PLUGIN_NAME, PLUGIN_VERSION, config } from "./config.js"
+import { config } from "./config.js"
 
 const execAsync = promisify(exec)
-/* global logger, Bot */
+/* global logger */
 
 export const pluginDir = path.resolve(fileURLToPath(new URL("../", import.meta.url)))
 
-export function localVersion() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf8"))
-    return pkg.version || PLUGIN_VERSION
-  } catch {
-    return PLUGIN_VERSION
+export function isGitRepo() {
+  return fs.existsSync(path.join(pluginDir, ".git"))
+}
+
+function short(sha) {
+  return String(sha || "").trim().slice(0, 8)
+}
+
+function assertGitRepo() {
+  if (!isGitRepo()) {
+    throw new Error("插件目录不是 git 仓库，无法自动更新；请改用 git clone -b main 方式安装插件")
   }
 }
 
-function parseVersion(v) {
-  v = String(v || "").trim().replace(/^[vV]/, "").split(/[-+]/)[0]
-  const parts = v.split(".").map(n => parseInt(n, 10))
-  if (parts.length < 3 || parts.some(n => Number.isNaN(n))) return null
-  return parts
+/** 本地当前检出提交（main 分支 HEAD） */
+async function localCommit() {
+  assertGitRepo()
+  const { stdout } = await execAsync("git rev-parse HEAD", { cwd: pluginDir, timeout: 15000 })
+  const full = stdout.trim()
+  if (!full) throw new Error("无法读取本地提交（git rev-parse HEAD）")
+  return full
 }
 
-export function newerThan(tag, current) {
-  const a = parseVersion(tag)
-  const b = parseVersion(current)
-  if (!a || !b) return false
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]
-  return false
-}
-
-async function fetchLatest() {
-  const repo = config.github_repo
-  if (!repo) throw new Error("未配置 github_repo（config/mugshot.yaml）")
+/** 插件源码的远端地址：优先本地 origin，其次配置的 github_repo */
+async function resolveRemoteUrl() {
+  assertGitRepo()
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-      headers: { Accept: "application/vnd.github+json", "User-Agent": "Mugshot-Yunzai-Plugin" },
-      signal: AbortSignal.timeout(20000),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      if (data?.tag_name) return { tag: data.tag_name, assets: data.assets || [] }
-      throw new Error("响应缺少 tag_name")
-    }
-    throw new Error(`GitHub API 返回 ${res.status}`)
-  } catch (err) {
-    logger.warn(`[Mugshot] 更新检查主源失败（${err.message}），尝试备用源`)
-    // 备用源：跟随 /releases/latest 的重定向拿到 tag
-    const res = await fetch(`https://github.com/${repo}/releases/latest`, {
-      method: "GET",
-      signal: AbortSignal.timeout(20000),
-    })
-    const final = res.url || ""
-    const idx = final.lastIndexOf("/tag/")
-    if (idx < 0) throw new Error(`主源与备用源均失败（${err.message}）`)
-    return { tag: decodeURIComponent(final.slice(idx + 5)), assets: [] }
-  }
+    const { stdout } = await execAsync("git remote get-url origin", { cwd: pluginDir, timeout: 15000 })
+    const url = stdout.trim()
+    if (url) return url
+  } catch {}
+  if (!config.github_repo) throw new Error("未找到 git origin，且未配置 github_repo（config/mugshot.yaml）")
+  return `https://github.com/${config.github_repo}.git`
 }
 
-// GitHub 检查结果缓存：#群主状态 等指令可能频繁触发，5 分钟内复用同一结果，
-// 避免触发 GitHub API 限流；执行更新时强制刷新拿到真正的最新版本
-let ghCache = null // { tag, ts }
+/** 远端 main 分支最新提交 */
+async function remoteMainCommit() {
+  const url = await resolveRemoteUrl()
+  const { stdout } = await execAsync(`git ls-remote "${url}" refs/heads/main`, { cwd: pluginDir, timeout: 30000 })
+  const sha = stdout.trim().split(/\s+/)[0]
+  if (!sha) throw new Error("远端没有 main 分支，请确认仓库地址")
+  return sha
+}
+
+// 检查结果缓存：#群主状态 等指令可能频繁触发，5 分钟内复用同一结果，
+// 避免频繁发起远程查询；执行更新时强制刷新拿到真正的最新提交
+let cache = null // { current, latest, ts }
 
 export async function checkForUpdate(force = false) {
-  if (!force && ghCache && Date.now() - ghCache.ts < 5 * 60 * 1000) {
-    return { latest: ghCache.tag, current: localVersion(), updateAvailable: newerThan(ghCache.tag, localVersion()) }
+  if (!force && cache && Date.now() - cache.ts < 5 * 60 * 1000) {
+    return { current: cache.current, latest: cache.latest, updateAvailable: cache.current !== cache.latest }
   }
-  const { tag } = await fetchLatest()
-  ghCache = { tag, ts: Date.now() }
-  return { latest: tag, current: localVersion(), updateAvailable: newerThan(tag, localVersion()) }
-}
-
-async function tryGitPull() {
-  if (!fs.existsSync(path.join(pluginDir, ".git"))) return null
-  try {
-    const { stdout } = await execAsync("git pull --ff-only", { cwd: pluginDir, timeout: 60000 })
-    return stdout?.trim() || "git pull 完成"
-  } catch (err) {
-    logger.warn(`[Mugshot] git pull 失败，回退到 Release 包更新: ${err.message}`)
-    return null
-  }
-}
-
-async function downloadAndInstall(tag) {
-  const repo = config.github_repo
-  const assetName = "mugshot-plugin.tar.gz"
-  let url = `https://github.com/${repo}/releases/download/${tag}/${assetName}`
-  const res = await fetch(url, { signal: AbortSignal.timeout(120000) })
-  if (!res.ok) throw new Error(`下载 ${assetName} 失败：HTTP ${res.status}`)
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mugshot-update-"))
-  const tgzPath = path.join(tmpDir, assetName)
-  fs.writeFileSync(tgzPath, Buffer.from(await res.arrayBuffer()))
-  await execAsync(`tar -xzf "${tgzPath}" -C "${tmpDir}"`, { timeout: 60000 })
-  const srcDir = path.join(tmpDir, PLUGIN_NAME)
-  if (!fs.existsSync(path.join(srcDir, "index.js"))) throw new Error("Release 包结构异常（缺少 index.js）")
-  await execAsync(`cp -a "${srcDir}/." "${pluginDir}/"`, { timeout: 60000 })
-  fs.rmSync(tmpDir, { recursive: true, force: true })
-  return "已从 Release 包覆盖安装"
+  const [local, remote] = await Promise.all([localCommit(), remoteMainCommit()])
+  cache = { current: short(local), latest: short(remote), ts: Date.now() }
+  return { current: cache.current, latest: cache.latest, updateAvailable: cache.current !== cache.latest }
 }
 
 export async function updatePlugin() {
+  assertGitRepo()
   const check = await checkForUpdate(true)
   if (!check.updateAvailable) {
-    return { updated: false, message: `当前已是最新版本 v${check.current}（远端 ${check.latest}）` }
+    return { updated: false, message: `当前已是最新（${check.current}）` }
   }
   logger.mark(`[Mugshot] 开始更新插件 ${check.current} -> ${check.latest}`)
-  const viaGit = await tryGitPull()
-  let detail
-  if (viaGit) {
-    detail = `git pull：${viaGit}`
-  } else {
-    detail = await downloadAndInstall(check.latest)
-  }
+  const url = await resolveRemoteUrl()
+  // 拉 main 分支源码，再硬重置覆盖本地工作区（本地改动会被覆盖）
+  await execAsync(`git fetch --quiet "${url}" main`, { cwd: pluginDir, timeout: 120000 })
+  await execAsync("git reset --hard FETCH_HEAD", { cwd: pluginDir, timeout: 60000 })
+  cache = null
+  let after = check.latest
+  try {
+    after = short(await localCommit())
+  } catch {}
   return {
     updated: true,
-    message: `插件已更新到 ${check.latest}（${detail}）\n改动需重启 Yunzai 后完全生效：可发送 #重启 或手动重启`,
+    message: `插件已更新到 ${after}（已拉取 main 分支源码覆盖）\n改动需重启 Yunzai 后完全生效：可发送 #重启 或手动重启`,
   }
 }
 
@@ -131,7 +98,7 @@ export async function updatePlugin() {
 export async function silentCheck() {
   try {
     const { updateAvailable, latest, current } = await checkForUpdate()
-    if (updateAvailable) logger.mark(`[Mugshot] 发现插件新版本 ${latest}（当前 v${current}），Master 可发送 #群主更新`)
+    if (updateAvailable) logger.mark(`[Mugshot] 发现插件新版本 ${latest}（当前 ${current}），Master 可发送 #群主更新`)
   } catch (err) {
     logger.debug(`[Mugshot] 更新检查失败: ${err.message}`)
   }

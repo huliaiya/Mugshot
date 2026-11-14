@@ -21,6 +21,7 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 - 需要先部署并运行 `mugshot-server`，获取其访问地址与统一 Token
 - WebSocket 订阅使用 Yunzai 根目录自带的 `ws` 依赖；Node 22+ 也可使用内置 WebSocket。缺失时插件自动降级为纯 HTTP 查询
 - 插件无独立构建步骤，克隆后重启 Yunzai 即可加载
+- 只有以 `git clone` 安装（目录内含 `.git`）才能使用 `#群主更新` 一键更新插件；用 tar 包解压安装的目录不是 git 仓库，更新时会提示改用 git 安装
 
 ## 配置
 
@@ -35,7 +36,7 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 | `fresh_timeout_ms` | `8000` | 等待设备按需上报的超时（毫秒） |
 | `fresh_cooldown_ms` | `10000` | 同一用户重复触发实时上报的最小间隔（毫秒），冷却期内自动展示缓存数据 |
 | `device_btn_per_row` | `5` | 设备选择卡片每行放几个按钮（最多 10） |
-| `github_repo` | `huliaiya/Mugshot` | 插件与服务端更新检查使用的 GitHub 仓库（格式 `owner/repo`） |
+| `github_repo` | `huliaiya/Mugshot` | 插件更新时若插件目录的 git 没有 origin，则回退到此仓库拉取 main 分支（格式 `owner/repo`） |
 | `auto_update_check` | `true` | 启动时与每日 9 点检查更新（仅写日志提示，不自动更新） |
 
 ### 锅巴面板（Guoba）
@@ -63,8 +64,8 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 ## 更新
 
 - 启动时与每日定时检查更新，仅记录日志；`#群主更新` 可直接更新服务端与插件
-- 插件更新直接跟随本仓库 `main` 分支；服务端更新走服务端自更新链路（下载新版本替换二进制后自动重启）
-- 更新检查使用 `github_repo` 配置的仓库，主源失败时自动尝试镜像
+- 插件更新 = 拉取仓库 `main` 分支源码并覆盖本地插件目录（`git fetch` + `git reset --hard`），因此插件需以 `git clone -b main` 方式安装；插件版本以本地提交短哈希表示
+- 远端地址优先取插件目录的 `origin`，缺失时回退到 `github_repo` 配置；服务端更新走服务端自更新链路（下载新版本替换二进制后自动重启）
 
 ## 安全与隐私
 

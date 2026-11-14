@@ -44,6 +44,29 @@ function localBaseCandidates(base) {
   return out
 }
 
+// normalizeScheme 保证 base 地址带 http(s):// scheme。
+// 用户常填 `1.2.3.4:8080`、`mugshot.example.com` 这种无 scheme 的地址，
+// 直接拼给 fetch / WebSocket 客户端会因不合法而连不上；缺省按 https 处理。
+// 已带 http/https/ws/wss 的输入原样保留（不重复加前缀）。
+function normalizeScheme(base) {
+  const trimmed = String(base || "").trim().replace(/\/+$/, "")
+  if (!trimmed) return ""
+  if (/^https?:\/\//i.test(trimmed)) return trimmed
+  if (/^wss?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
+}
+
+// toWsUrl 把 base 地址派生成 ws(s):// URL。
+//  https -> wss，http -> ws；已是 ws(s):// 的保持；裸地址先规范成 https 再转 wss。
+function toWsUrl(base) {
+  const normalized = normalizeScheme(base)
+  if (normalized.startsWith("wss://")) return normalized
+  if (normalized.startsWith("ws://")) return normalized
+  if (normalized.startsWith("https://")) return normalized.replace("https://", "wss://")
+  if (normalized.startsWith("http://")) return normalized.replace("http://", "ws://")
+  return normalized
+}
+
 class ServerClient {
   constructor() {
     this.devicesCache = [] // 订阅广播维护的设备列表快照
@@ -59,7 +82,7 @@ class ServerClient {
   // ---- 基础 ----
 
   get baseUrl() {
-    return String(config.server_url || "").replace(/\/+$/, "")
+    return normalizeScheme(String(config.server_url || "").trim().replace(/\/+$/, ""))
   }
 
   // 统一 Token：优先使用 token，其次兼容旧配置的 plugin_token
@@ -68,7 +91,7 @@ class ServerClient {
   }
 
   get wsUrl() {
-    return this.baseUrl.replace(/^http/, "ws") + "/ws/plugin?token=" + encodeURIComponent(this.token)
+    return toWsUrl(this.baseUrl) + "/ws/plugin?token=" + encodeURIComponent(this.token)
   }
 
   headers(extra = {}) {

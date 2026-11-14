@@ -161,7 +161,7 @@ export class Mugshot extends plugin {
         { label: "服务端版本", value: `${health.version}（go ${health.go || "-"}）` },
         { label: "运行时长", value: formatUptime(health.uptime_sec) },
         { label: "在线设备", value: `${health.devices_online} / ${health.devices_total}` },
-        { label: "插件版本", value: versionInfo ? `v${versionInfo.current}` : "-" },
+        { label: "插件提交", value: versionInfo ? versionInfo.current : "-" },
         {
           label: "可用更新",
           value: versionInfo ? (versionInfo.updateAvailable ? `${versionInfo.latest}（可更新）` : "已是最新") : "检查失败",
@@ -200,15 +200,15 @@ export class Mugshot extends plugin {
     if (!sAvail && !pAvail) {
       const data = updateCardData("双端均已是最新版本", [
         `服务端：${s ? `${s.current}（远端 ${s.latest}）` : "检查失败"}`,
-        `插件：${p ? `v${p.current}（远端 ${p.latest}）` : "检查失败"}`,
+        `插件：${p ? `${p.current}（远端 ${p.latest}）` : "检查失败"}`,
       ].join("\n"))
       const img = await renderCard(this.e, "update", data)
-      return this.#send(img, null, [["更新提示渲染失败", `服务端 ${s?.current || "-"} / 插件 v${p?.current || "-"} 均已是最新`]])
+      return this.#send(img, null, [["更新提示渲染失败", `服务端 ${s?.current || "-"} / 插件 ${p?.current || "-"} 均已是最新`]])
     }
 
     // 有可用更新：直接执行（单端检查失败不影响另一端更新）
     const lines = [
-      `检查结果：服务端${sAvail ? ` ${s.current} → ${s.latest}` : s ? "已是最新" : "检查失败"}，插件${pAvail ? ` v${p.current} → ${p.latest}` : p ? "已是最新" : "检查失败"}`,
+      `检查结果：服务端${sAvail ? ` ${s.current} → ${s.latest}` : s ? "已是最新" : "检查失败"}，插件${pAvail ? ` ${p.current} → ${p.latest}` : p ? "已是最新" : "检查失败"}`,
       "",
     ]
 
@@ -235,7 +235,7 @@ export class Mugshot extends plugin {
         lines.push(`插件：更新失败（${err.message}）`)
       }
     } else {
-      lines.push(p ? `插件：已是最新（v${p.current}）` : "插件：检查失败，可发送 #群主状态 排查")
+      lines.push(p ? `插件：已是最新（${p.current}）` : "插件：检查失败，可发送 #群主状态 排查")
     }
 
     const data = updateCardData("双端更新结果", lines.join("\n"))

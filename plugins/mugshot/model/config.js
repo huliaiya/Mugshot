@@ -19,7 +19,7 @@ const DEFAULT = {
   fresh_cooldown_ms: 10000,
   // #群主详情 是否默认触发按需上报
   detail_fresh: true,
-  // 插件/服务端更新检查使用的 GitHub 仓库
+  // 插件更新时若插件目录的 git 没有 origin，则回退到此仓库拉取 main 分支
   github_repo: GITHUB_REPO_DEFAULT,
   // 启动时与每日定时检查更新（仅日志提示，不自动更新）
   auto_update_check: true,

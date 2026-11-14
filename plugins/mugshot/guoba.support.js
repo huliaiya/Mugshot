@@ -167,8 +167,8 @@ const schemas = [
   },
   {
     field: FIELD_GITHUB_REPO,
-    label: "更新检查仓库",
-    bottomHelpMessage: "插件与服务端更新检查使用的 GitHub 仓库，格式 owner/repo",
+    label: "更新回退仓库",
+    bottomHelpMessage: "插件更新时若插件目录的 git 没有 origin，则回退到此仓库拉取 main 分支，格式 owner/repo",
     component: "Input",
     componentProps: {
       placeholder: "owner/repo",
