@@ -56,7 +56,7 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             val code = conn.responseCode
             conn.disconnect()
             if (code in 200..299) {
-                LogStore.log("worker", "HTTP 兜底上报成功")
+                LogStore.log("worker", "HTTP 兜底上报成功 app=" + snapshot.foregroundApp + " 电量=" + snapshot.batteryLevel + "% 屏幕=" + snapshot.screenOn)
                 Result.success()
             } else {
                 LogStore.log("worker", "HTTP 兜底上报失败 HTTP $code，等待重试")

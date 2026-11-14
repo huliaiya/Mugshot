@@ -135,7 +135,8 @@ class WsClient(
                 when (msg.optString("type")) {
                     "register_ok" -> setState(STATE_ONLINE)
                     "request_report" -> {
-                        LogStore.log("ws", "收到服务器即时采集请求")
+                        val rid = msg.optString("request_id")
+                        LogStore.log("ws", "收到服务器主动采集请求（request_id=" + (if (rid.isEmpty()) "无" else "已脱敏") + "），立即采集上报")
                         handleRequestReport(webSocket, msg)
                     }
                 }
@@ -194,6 +195,8 @@ class WsClient(
         }
         webSocket.send(report.toString())
         Prefs.lastReportTs = System.currentTimeMillis()
+        val kind = if (!requestId.isNullOrEmpty()) "响应服务器主动要求" else "定时上报"
+        LogStore.log("ws", kind + "已上报 app=" + s.foregroundApp + " 电量=" + s.batteryLevel + "% 屏幕=" + s.screenOn + " 网络=" + s.networkType)
     }
 
     private fun startTimers(webSocket: WebSocket) {

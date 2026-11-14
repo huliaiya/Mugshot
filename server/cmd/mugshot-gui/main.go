@@ -234,6 +234,11 @@ type ui struct {
 	// 最近一次 /health 是否可达：离线时放慢轮询并暂停设备轮询，减少无效请求；
 	// 恢复在线时立即刷新一次设备列表。
 	online atomic.Bool
+
+	// 运行日志页是否为当前活动标签：仅在该页可见时自动刷新日志，避免后台无谓调用 journalctl。
+	logTabActive atomic.Bool
+	// 是否有一次 journalctl 读取正在进行：防止自动刷新与手动刷新叠加，造成卡顿。
+	logBusy atomic.Bool
 }
 
 func main() {
@@ -668,7 +673,7 @@ func (u *ui) build() fyne.CanvasObject {
 	overview := newDragScroll(container.NewVBox(statusCard, devicesCard))
 
 	// ---- 运行日志页（页内展示，切换到本页即加载最新） ----
-	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志（最多 500 行，完整历史可用 journalctl 查看）；切换到本页时自动加载最新内容。")
+	u.logHint = widget.NewLabel("只看本次运行：显示服务最近一次启动以来的日志（最多 500 行，完整历史可用 journalctl 查看）；本页可见时每 5 秒自动刷新最新内容。")
 	u.logHint.Wrapping = fyne.TextWrapWord
 	u.logMode = "restart"
 	u.logModeBtn = widget.NewButton("查看最近 24 小时", u.toggleLogMode)
@@ -811,10 +816,14 @@ func (u *ui) build() fyne.CanvasObject {
 		container.NewTabItem(tabAccess, tokenPage),
 		container.NewTabItem(tabSettings, settingsPage),
 	)
-	// 每次切到运行日志页都重新加载最新日志；首次切到设置页时读取当前值
+	// 切到运行日志页立即加载最新日志并标记为活动页（触发 5s 自动刷新）；
+	// 首次切到设置页时读取当前值。
 	u.tabs.OnSelected = func(t *container.TabItem) {
 		if t.Text == tabRunLog {
+			u.logTabActive.Store(true)
 			u.refreshRunLog()
+		} else {
+			u.logTabActive.Store(false)
 		}
 		if t.Text == tabSettings {
 			u.refreshSettings()
@@ -830,11 +839,16 @@ const (
 	healthOfflineInterval = 6 * time.Second
 	deviceOnlineInterval  = 3 * time.Second
 	deviceOfflineInterval = 6 * time.Second
+	// 运行日志自动刷新间隔：仅当日志页可见时生效，5 秒拉取一次最新 journal。
+	logAutoInterval = 5 * time.Second
 )
 
 func (u *ui) startPolling() {
 	go u.healthLoop()
 	go u.deviceLoop()
+	go u.logLoop()
+	// 启动即加载一次日志，避免首访运行日志页时空白或需手动点击。
+	u.refreshRunLog()
 }
 
 func (u *ui) healthLoop() {
@@ -865,6 +879,21 @@ func (u *ui) deviceLoop() {
 		case <-u.quit:
 			return
 		case <-time.After(d):
+		}
+	}
+}
+
+// logLoop 每 5 秒自动刷新一次运行日志，但仅在日志页为当前活动标签时执行，
+// 避免用户在其他标签页时无谓调用 journalctl 造成卡顿。
+func (u *ui) logLoop() {
+	for {
+		select {
+		case <-u.quit:
+			return
+		case <-time.After(logAutoInterval):
+		}
+		if u.logTabActive.Load() {
+			u.refreshRunLog()
 		}
 	}
 }
@@ -1066,16 +1095,22 @@ func (u *ui) toggleLogMode() {
 	} else {
 		u.logMode = "restart"
 		u.logModeBtn.SetText("查看最近 24 小时")
-		u.logHint.SetText("只看本次运行：显示服务最近一次启动以来的日志；切换到本页时自动加载最新内容。")
+		u.logHint.SetText("只看本次运行：显示服务最近一次启动以来的日志；本页可见时每 5 秒自动刷新最新内容。")
 	}
 	u.refreshRunLog()
 }
 
 // refreshRunLog 重新加载服务日志（journalctl）。
+// 同一时刻只允许一次读取在进行（logBusy），自动刷新撞上手动刷新时直接跳过，
+// 避免多次 journalctl 叠加拖慢界面。
 func (u *ui) refreshRunLog() {
+	if !u.logBusy.CompareAndSwap(false, true) {
+		return
+	}
 	mode := u.logMode
 	u.logView.SetText("正在加载日志……")
 	go func() {
+		defer u.logBusy.Store(false)
 		text, err := serverLogs(mode)
 		fyne.Do(func() {
 			if err != nil {

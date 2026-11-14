@@ -163,6 +163,23 @@ export function commandFor(name) {
   return `#群主查看 ${name}`
 }
 
+/** 全部设备状态卡片：每台设备的状态 + 使用情况（前台应用/电池/屏幕/网络/充电/最近上报） */
+export function allStatusView(d) {
+  const p = d?.last_report?.payload || {}
+  const level = batteryLevel(p)
+  return {
+    ...deviceView(d),
+    appText: p.foreground_app || p.foreground_package || "无数据",
+    batteryText: level === null ? "无数据" : `${level}%`,
+    battery_class: batteryClass(level),
+    battery_width: level === null ? 0 : Math.min(100, Math.max(4, level)),
+    screenText: p.screen_on === undefined ? "无数据" : screenText(p.screen_on),
+    networkText: p.network_type ? networkText(p) : "无数据",
+    chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
+    report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
+  }
+}
+
 export function pluginFooter() {
   const host = config.server_url ? config.server_url.replace(/^https?:\/\//, "") : ""
   return host ? `server ${host}` : "Mugshot"

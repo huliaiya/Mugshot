@@ -16,14 +16,20 @@ import { isQQBot, buildReply, commandButton, linkButton } from "./model/buttons.
 import {
   statusView,
   deviceView,
+  allStatusView,
   formatTime,
   formatAgo,
   maskDeviceID,
   pluginFooter,
 } from "./model/format.js"
+import { getBackdrop } from "./model/backdrop.js"
 import { checkForUpdate, updatePlugin, silentCheck } from "./model/updater.js"
 
 /* global logger, Bot */
+
+// 更新防重入：服务端自更新会让进程重启、插件 git 拉取可能耗时较长，
+// 连发 #群主更新 会重复触发。模块级标志（Mugshot 为单例）保证同一时刻只有一个更新在跑。
+let updating = false
 
 export class Mugshot extends plugin {
   constructor() {
@@ -79,13 +85,14 @@ export class Mugshot extends plugin {
     const data = {
       title: "Mugshot 指令帮助",
       server: pluginFooter(),
+      backdrop: getBackdrop(),
       groups: [
         {
           name: "设备查询",
           list: [
-            { cmd: "#群主列表", desc: "查看所有已接入设备（在线状态/最后上报）" },
-            { cmd: "#群主查看 [设备名]", desc: "查看设备当前状态，默认触发一次实时上报" },
-            { cmd: "#群主在干嘛 [设备名]", desc: "同 #群主查看" },
+            { cmd: "#群主列表", desc: "查看所有已接入设备（紧凑列表，在线状态/最后上报）" },
+            { cmd: "#群主查看 [设备名]", desc: "不带设备名看全部设备状态与使用情况；带设备名看单台实时状态" },
+            { cmd: "#群主在干嘛 [设备名]", desc: "同 #群主查看（不带设备名时展示全部设备当前状态与使用情况）" },
             { cmd: "#群主详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
           ],
         },
@@ -122,6 +129,7 @@ export class Mugshot extends plugin {
       onlineCount: devices.filter(d => d.online).length,
       devices,
       server: pluginFooter(),
+      backdrop: getBackdrop(),
     }
     const img = await renderCard(this.e, "devices", data)
     const rows = this.#deviceButtonRows(devices.map(d => ({ name: d.device_name })), "查看")
@@ -169,6 +177,7 @@ export class Mugshot extends plugin {
         },
       ],
       server: pluginFooter(),
+      backdrop: getBackdrop(),
     }
     const img = await renderCard(this.e, "update", data)
     return this.#send(img, null, [
@@ -180,8 +189,25 @@ export class Mugshot extends plugin {
    * #群主更新（仅 Master）：一条指令直接更新双端。
    * 并行检查服务端与插件，发现有更新就直接执行，无需二次确认。
    */
-  async serverUpdate() {
-    const [serverCheck, pluginCheck] = await Promise.allSettled([
+    async serverUpdate() {
+      if (updating) {
+        const img = await renderCard(this.e, "update", updateCardData(
+          "Mugshot 更新中",
+          "正在更新中（服务端自更新或插件拉取需数秒），请稍候再试 #群主更新。",
+        ))
+        return this.#send(img, null, [["Mugshot 更新", "正在更新中，请稍候再试 #群主更新。"]])
+      }
+      updating = true
+      try {
+        return await this.#doServerUpdate()
+     } finally {
+       updating = false
+     }
+   }
+
+   /** #群主更新 实际逻辑（外层 serverUpdate 负责防重入锁） */
+   async #doServerUpdate() {
+     const [serverCheck, pluginCheck] = await Promise.allSettled([
       server.checkServerUpdate(),
       checkForUpdate(),
     ])
@@ -250,7 +276,7 @@ export class Mugshot extends plugin {
    * 多设备未指定名称时渲染设备选择图片（附按钮），不随意挑选某一台。
    */
   async #view(name, { fresh, tpl, title }) {
-    // 1) 未指定设备名
+    // 1) 未指定设备名：展示全部设备的状态与使用情况（随机背景图卡片）
     if (!name) {
       let resp
       try {
@@ -262,14 +288,32 @@ export class Mugshot extends plugin {
       if (!devices.length) {
         return this.#renderError("暂无设备", "还没有任何 Android 设备接入，请先安装并配置 Mugshot App。")
       }
-      if (devices.length === 1) {
-        return this.#queryAndRender(devices[0].device_name || devices[0].device_id, fresh, tpl, title)
-      }
-      return this.#renderDevicePicker(devices, fresh ? "查看" : "查看详情")
+      return this.#renderAllStatus(devices, fresh)
     }
 
     // 2) 指定设备名（服务端负责名称解析，含大小写/前缀容错）
     return this.#queryAndRender(name, fresh, tpl, title)
+  }
+
+  /** 全部设备状态 + 使用情况（随机背景图），#群主在干嘛 / #群主查看（未带设备名）使用 */
+  async #renderAllStatus(devices, fresh) {
+    const rows = devices.map(allStatusView)
+    const data = {
+      title: fresh ? "全部设备当前状态" : "全部设备状态",
+      count: rows.length,
+      onlineCount: rows.filter(d => d.online).length,
+      hint: fresh ? "默认触发一次实时上报，约数秒内刷新；单台可发 #群主查看 <设备名>" : "实时数据来自设备上报；单台可发 #群主查看 <设备名>",
+      devices: rows,
+      server: pluginFooter(),
+      backdrop: getBackdrop(),
+    }
+    const img = await renderCard(this.e, "allstatus", data)
+    return this.#send(img, null, [
+      [
+        "全部设备状态渲染失败",
+        `共 ${rows.length} 台设备：\n` + rows.map(d => `${d.online ? "[在线]" : "[离线]"} ${d.device_name} · ${d.appText} · ${d.batteryText} · ${d.screenText} · ${d.networkText}（最近 ${d.report_time_text}）`).join("\n"),
+      ],
+    ])
   }
 
   async #queryAndRender(name, fresh, tpl, title) {
@@ -306,6 +350,7 @@ export class Mugshot extends plugin {
     data.class = ""
     if (cooldownNote && !data.note) data.note = cooldownNote
     data.server = pluginFooter()
+    data.backdrop = getBackdrop()
 
     const img = await renderCard(this.e, tpl, data)
     const rows = isQQBot(this.e)
@@ -331,25 +376,6 @@ export class Mugshot extends plugin {
     ])
   }
 
-  /** 多设备选择卡片：每台设备一个按钮，点击即发送对应查询指令 */
-  #renderDevicePicker(devices, actionText) {
-    const list = devices.map(listView)
-    const data = {
-      title: "选择要查询的设备",
-      hint: `接入 ${list.length} 台设备，请点击按钮或发送「#群主${actionText} 设备名」`,
-      devices: list,
-      server: pluginFooter(),
-    }
-    const rows = this.#deviceButtonRows(
-      list.map(d => ({ name: d.device_name })),
-      actionText === "查看详情" ? "详情" : "查看",
-    )
-    const img = renderCard(this.e, "devices", data)
-    return img.then(i => this.#send(i, isQQBot(this.e) ? rows : [], [
-      ["设备选择渲染失败", `共 ${list.length} 台设备，请发送“#群主查看 设备名”指定设备：\n` + list.map(d => `${d.online ? "[在线]" : "[离线]"} ${d.device_name}`).join("\n")],
-    ]))
-  }
-
   #deviceButtonRows(items, prefix) {
     const perRow = Math.min(Math.max(config.device_btn_per_row || 5, 1), 10)
     const rows = []
@@ -372,6 +398,7 @@ export class Mugshot extends plugin {
       hint: "可发送 #群主状态 检查服务端连通性，或联系群主检查 mugshot-server。",
       time: formatTime(Date.now()),
       server: pluginFooter(),
+      backdrop: getBackdrop(),
     }
     const img = await renderCard(this.e, "error", data)
     return this.#send(img, null, [[title, message]])
@@ -395,7 +422,7 @@ export class Mugshot extends plugin {
 }
 
 function updateCardData(title, message, confirm = false) {
-  return { title, message, confirm, server: pluginFooter() }
+  return { title, message, confirm, server: pluginFooter(), backdrop: getBackdrop() }
 }
 
 /** 设备 -> 列表卡片行数据（含电池/前台应用摘要） */
