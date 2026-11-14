@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -317,9 +316,9 @@ func (u *ui) setupTray(a fyne.App, w fyne.Window) bool {
 	if !ok {
 		return false
 	}
-	// Linux 托盘依赖 DBus（StatusNotifier）。无会话总线时（纯 SSH/无桌面环境）
-	// 不启用托盘，否则关窗后既看不到窗口、也没有托盘图标可恢复。
-	if runtime.GOOS == "linux" && os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+	// Linux 托盘依赖 DBus（StatusNotifier）。会话总线不可用时 systray 会连不上，
+	// 退出时反而会空指针崩溃，因此先探测可达性，不可达就不启用托盘。
+	if !trayAvailable() {
 		return false
 	}
 	desk.SetSystemTrayIcon(fyne.NewStaticResource("mugshot.png", iconPNG))
