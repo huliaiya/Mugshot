@@ -113,20 +113,71 @@ curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:8080/devices
 
 > 自更新说明：`#群主更新` 触发后，服务端会从 GitHub Release（可配 `github_mirror` 前缀加速）下载新二进制替换自身，然后主动退出，由 systemd `Restart=always` 拉起新版本，约 5~10 秒恢复。
 
-### 1.6 公网暴露与 TLS
+### 1.6 公网暴露与 TLS（反向代理转发 HTTPS + WebSocket）
 
-仅在内网使用时无需 TLS。公网部署强烈建议前置 Nginx / Caddy 做 HTTPS + WebSocket 透传：
+仅在内网使用时无需 TLS。公网部署强烈建议前置 Nginx / Caddy 做 HTTPS 终结并透传 WebSocket。
+两个 WS 端点（`/ws/device` 设备、`/ws/plugin` 插件）都**必须**正确转发 `Upgrade` 与 `Connection` 头，
+否则 WebSocket 握手拿不到 101 响应，客户端表现为"连不上"——这是最常见的配置坑。
 
-```
-# Caddy 示例（自动 HTTPS）
-mug.example.com {
-    reverse_proxy 127.0.0.1:8080
+**Nginx 示例**（`/etc/nginx/conf.d/mugshot.conf`，证书换成你的）：
+
+```nginx
+upstream mugshot {
+    server 127.0.0.1:8080;
+}
+
+server {
+    listen 443 ssl;
+    server_name mug.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/mug.example.com.pem;
+    ssl_certificate_key /etc/nginx/ssl/mug.example.com.key;
+
+    # 设备 WS（/ws/device）+ 插件 WS（/ws/plugin）+ HTTP API 统一透传
+    location / {
+        proxy_pass http://mugshot;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Host $host;
+        # 长连接保活：避免代理侧 60s 默认读超时把 WS 掐断
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    # /local/config 仅本机回环可读，代理层一律 404 屏蔽，避免 Token 被外部经代理读取
+    location = /local/config {
+        return 404;
+    }
 }
 ```
 
-App 与插件中的服务器地址相应改为 `https://mug.example.com`。
+**Caddy 示例**（自动 HTTPS，内置 WebSocket 透传，无需手写 Upgrade）：
 
-> 注意：`/local/config` 只允许本机回环访问，用于 GUI 免授权读取 Token；前面挂了反向代理时，该路径的请求来源会变成回环地址，请自行在代理层屏蔽 `/local/config`，避免 Token 被外部读取。
+```
+mug.example.com {
+    # 屏蔽 /local/config，避免外部经代理读到本机免授权的 Token
+    handle /local/config {
+        abort
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8080 {
+            flush -1
+        }
+    }
+}
+```
+
+代理配好后，App 与插件中的服务器地址填 `https://mug.example.com`（带 `https://`），
+插件会自动派生出 `wss://mug.example.com/ws/plugin`、App 派生 `wss://mug.example.com/ws/device`。
+
+> 服务端取真实 IP 的逻辑：只有当**直连 peer 是回环地址**（即代理与 Go 服务同机）时，
+> 才信任 `X-Forwarded-For` 取原始客户端 IP；直连 peer 非回环时不信任该头，防止公网客户端伪造。
+> 同机部署 nginx 转发时 peer 即回环，能正确还原设备/插件的真实 IP；跨机部署时日志里显示的是代理 IP。
+
+> 注意：`/local/config` 只允许本机回环访问，用于 GUI 免授权读取 Token；前面挂了反向代理后务必在代理层屏蔽该路径（见上例），否则外部可借代理读到 Token。
 
 ## 2. 部署 Yunzai 插件
 
@@ -149,6 +200,8 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 mkdir -p <Yunzai根目录>/plugins/mugshot
 tar -xzf mugshot-plugin_1.0.1.tar.gz -C <Yunzai根目录>/plugins/mugshot --strip-components=1
 ```
+
+> 注意：此方式解压出的插件目录不是 git 仓库，`#群主更新` 无法自动更新插件（会提示改用 git 安装）；需要一键更新请用方式一。
 
 ### 2.3 方式三：完整仓库
 
@@ -199,6 +252,14 @@ Android 15 对 `dataSync` 类型前台服务有每日约 6 小时运行配额。
 - 实时查询（request_report）在该时段可能降级为缓存数据
 - 重新打开 App 即可重新拉起前台服务
 
+### 连接与后台保活
+
+- 断线自动重连：采用指数退避（1 秒起，最长 5 分钟），连接成功后自动复位
+- 网络恢复即重连：App 监听网络状态，切换 Wi-Fi/移动数据或退出飞行模式后立即重连，不必等待退避计时
+- 常驻通知：前台服务运行时显示常驻通知（点击可回到 App）；服务被系统回收后，回到 App、开机或应用更新后都会自动重新拉起
+- 从最近任务划掉 App 后服务继续运行；Android 15 的 dataSync 配额耗尽后由 WorkManager 周期 HTTP 上报兜底
+- 首页会实时显示后台服务的连接状态（在线/连接中/离线/错误），无需手动刷新
+
 ### 应用内更新
 
 App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自动切换备用源）。发现新版本时下载 APK 并拉起安装器，首次需要授予"安装未知应用"权限。
@@ -246,7 +307,9 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 | 服务端日志刷「插件鉴权失败」 | 插件与服务端 Token 不一致。v1.0.19 起同机部署会自动同步新 Token；远程服务端请在"接入信息"页复制 Token 填到 `config/mugshot.yaml` 的 `token` 字段。同一 IP+路径的失败日志每分钟只记一条并汇总次数 |
 | GUI 报「HTTP 401: unauthorized」 | GUI 缓存的 Token 已过期。v1.0.19 起同机部署会自动同步新 Token 并重试；远程服务端请在"接入信息"页手动填写后点"生成新 Token"或保存 |
 | 查询永远显示 CACHE | 设备未在线/未授予使用情况权限/被厂商杀后台（看 App 权限面板与通知栏） |
+| 切网络/飞行模式后长时间未恢复 | 新版会在网络恢复时立即重连；点首页"重新测试连接"可手动重连，仍失败则查服务器地址与设备令牌 |
+| 挂反向代理后设备/插件连不上（直接连可以） | 代理未转发 WebSocket：Nginx 必须加 `proxy_http_version 1.1` + `Upgrade`/`Connection "upgrade"` 两个头（见 1.6）；Caddy 自带。另确认代理把 `Upgrade`/`Connection` 透传、读超时设长（`proxy_read_timeout 3600s`） |
 | 回复无图片 | Yunzai 渲染器未配置（puppeteer），检查 `config/renderer.yaml` |
 | 按钮不显示 | 仅 QQBot 适配器支持按钮，其他协议端正常降级 |
-| 更新检查失败 | `github_repo` 未改成实际仓库，或服务器无法访问 GitHub（配置 `github_mirror`） |
+| 更新检查失败 | 插件：插件目录不是 git 仓库（改用 `git clone` 安装）或仓库无 `origin`；服务端：`github_repo` 未改成实际仓库，或服务器无法访问 GitHub（配置 `github_mirror`） |
 | GUI"设置"页保存失败（HTTP 500） | 服务用户没有写 `/etc/mugshot` 的权限：先升级到 v1.0.18+（单元增加 `ReadWritePaths=/etc/mugshot`，postinst 会把目录归属改为 `mugshot`）再 `sudo systemctl restart mugshot-server`；v1.0.18 起目录不可写时自动回退为原地覆写，日志会给出具体原因（`journalctl -u mugshot-server | grep 保存设置失败`） |
