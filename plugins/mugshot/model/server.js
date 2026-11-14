@@ -187,6 +187,7 @@ class ServerClient {
   async getStatus(device, fresh = true) {
     const q = new URLSearchParams({ device: String(device ?? ""), fresh: fresh ? "1" : "0" })
     if (fresh) q.set("timeout_ms", String(config.fresh_timeout_ms || 8000))
+    if (fresh && device) logger.debug(`[Mugshot] 请求设备 ${device} 新鲜状态（fresh=1）`)
     const data = await this.request(`/status?${q}`, { timeoutMs: (config.fresh_timeout_ms || 8000) + 10000 })
     if (data?.device) this.#applyDeviceSnapshot(data.device)
     return data
@@ -253,11 +254,20 @@ class ServerClient {
       const data = msg.data || {}
       if (msg.type === "hello") {
         this.#applySnapshotList(data.devices || [])
-      } else if ((msg.type === "device_update" || msg.type === "device_online") && data.device) {
+      } else if (msg.type === "device_online" && data.device) {
+        // 上线事件：online 必然为 true（事件名即权威），避免广播对象缺 online 字段时缓存停留 false
+        this.#applyDeviceSnapshot({ ...data.device, online: true })
+      } else if (msg.type === "device_update" && data.device) {
         this.#applyDeviceSnapshot(data.device)
-      } else if (msg.type === "device_offline" && data.device_id) {
-        const d = this.devicesCache.find(i => i.device_id === data.device_id)
-        if (d) d.online = false
+        logger.debug(`[Mugshot] 收到设备上报更新 ${data.device.device_name || data.device.device_id}`)
+      } else if (msg.type === "device_offline") {
+        if (data.device) {
+          this.#applyDeviceSnapshot({ ...data.device, online: false })
+        }
+        if (data.device_id) {
+          const d = this.devicesCache.find(i => i.device_id === data.device_id)
+          if (d) d.online = false
+        }
       }
       this.cacheTs = Date.now()
     } catch (err) {

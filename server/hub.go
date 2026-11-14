@@ -117,6 +117,7 @@ type PluginConn struct {
 
 type pendingRequest struct {
 	deviceID string
+	reason   string
 	ch       chan *Report
 	created  time.Time
 }
@@ -232,9 +233,8 @@ func (h *Hub) handleDeviceMessage(conn *DeviceConn, msg *deviceMsg) {
 			conn.DeviceName = deviceName
 			h.store.UpsertFromRegister(deviceID, deviceName, model)
 			h.reply(conn, &deviceMsg{Type: "register_ok", Timestamp: nowMs()})
-			d := h.store.GetDeviceByID(deviceID)
-			if d != nil {
-				h.broadcast("device_online", map[string]any{"device": d}, nil)
+			if v := h.viewForBroadcast(deviceID); v != nil {
+				h.broadcast("device_online", map[string]any{"device": v}, nil)
 			}
 		}
 	case "heartbeat":
@@ -280,20 +280,22 @@ func (h *Hub) handleReport(conn *DeviceConn, msg *deviceMsg) {
 			case p.ch <- rep:
 			default:
 			}
-			log.Printf("[report] 设备 %s 已响应按需上报 request=%s（耗时 %s）",
-				maskID(conn.DeviceID), maskID(msg.RequestID), time.Since(p.created).Round(time.Millisecond))
+			log.Printf("[report] 设备 %s 已响应服务端主动要求的上报 request=%s reason=%q（响应耗时 %s）",
+				maskID(conn.DeviceID), maskID(msg.RequestID), p.reason, time.Since(p.created).Round(time.Millisecond))
 		}
 	}
 
-	source := "scheduled"
+	source := "设备主动/定时上报"
 	if msg.RequestID != "" {
-		source = "on-demand"
+		source = "响应服务端主动要求"
 	}
-	log.Printf("[report] 设备 %s(%s) %s上报 app=%q screen=%v battery=%d%% %s net=%s",
+	log.Printf("[report] 设备 %s(%s) %s app=%q screen=%v battery=%d%% %s net=%s",
 		d.DeviceName, maskID(d.DeviceID), source, rep.Payload.ForegroundApp, rep.Payload.ScreenOn,
 		rep.Payload.BatteryLevel, rep.Payload.BatteryStatus, rep.Payload.NetworkType)
 
-	h.broadcast("device_update", map[string]any{"device": d, "report": rep}, nil)
+	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
+		h.broadcast("device_update", map[string]any{"device": v, "report": rep}, nil)
+	}
 }
 
 // registerDevice replaces any previous connection of the same device.
@@ -308,7 +310,9 @@ func (h *Hub) registerDevice(conn *DeviceConn, model string) {
 	d := h.store.UpsertFromRegister(conn.DeviceID, conn.DeviceName, model)
 	log.Printf("[ws] 设备已注册 device=%s id=%s（当前在线 %d 台）",
 		d.DeviceName, maskID(conn.DeviceID), h.OnlineCount())
-	h.broadcast("device_online", map[string]any{"device": d}, nil)
+	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
+		h.broadcast("device_online", map[string]any{"device": v}, nil)
+	}
 }
 
 func (h *Hub) unregisterDevice(conn *DeviceConn) {
@@ -322,7 +326,12 @@ func (h *Hub) unregisterDevice(conn *DeviceConn) {
 	h.mu.Unlock()
 	log.Printf("[ws] 设备离线 device=%s id=%s（当前在线 %d 台）",
 		conn.DeviceName, maskID(conn.DeviceID), h.OnlineCount())
-	h.broadcast("device_offline", map[string]any{"device_id": conn.DeviceID, "device_name": conn.DeviceName}, &conn.wsConn)
+	payload := map[string]any{"device_id": conn.DeviceID, "device_name": conn.DeviceName}
+	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
+		// 设备刚被移出 deviceConns，viewForBroadcast 里 FillOnline 会把 online 置 false
+		payload["device"] = v
+	}
+	h.broadcast("device_offline", payload, &conn.wsConn)
 }
 
 // ---- plugin connections ----
@@ -372,8 +381,9 @@ func (h *Hub) handlePluginWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ws] 插件连接断开（剩余 %d 个）", n)
 	})
 
-	// send a hello with the current device list
+	// send a hello with the current device list（带实时 online，否则插件首次订阅会把在线设备误存为离线）
 	if views := h.store.ListDevices(); len(views) > 0 {
+		h.FillOnline(views)
 		data := mustJSON(map[string]any{"type": "hello", "data": map[string]any{"devices": views}, "ts": nowMs()})
 		conn.trySend(data)
 	}
@@ -452,7 +462,7 @@ func (h *Hub) RequestReport(deviceID, reason string, timeout time.Duration) (*Re
 	h.freshLast[deviceID] = now
 
 	requestID := newRequestID()
-	p := &pendingRequest{deviceID: deviceID, ch: make(chan *Report, 1), created: time.Now()}
+	p := &pendingRequest{deviceID: deviceID, reason: reason, ch: make(chan *Report, 1), created: time.Now()}
 	h.pending[requestID] = p
 	sent := conn.trySend(mustJSON(&deviceMsg{
 		Type:      "request_report",
@@ -524,6 +534,19 @@ func (h *Hub) FillOnline(views []*DeviceView) {
 	for _, v := range views {
 		_, v.Online = h.deviceConns[v.DeviceID]
 	}
+}
+
+// viewForBroadcast 返回带实时 online 标志的设备视图，供广播给插件端。
+// 广播载荷里带正确的 online，插件端缓存的设备在线状态才与服务端实时一致，
+// 否则（此前直接广播 *Device，无 online 字段）设备明明在线，插件列表却显示离线。
+func (h *Hub) viewForBroadcast(deviceID string) *DeviceView {
+	d := h.store.GetDeviceByID(deviceID)
+	if d == nil {
+		return nil
+	}
+	v := &DeviceView{Device: *d}
+	h.FillOnline([]*DeviceView{v})
+	return v
 }
 
 func (h *Hub) IsDeviceOnline(deviceID string) bool {

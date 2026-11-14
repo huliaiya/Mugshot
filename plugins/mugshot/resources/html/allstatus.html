@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; width: 760px; }
+  .wrap { min-height: 100%; background: {{ backdrop.background }}; padding: 26px; }
+  .glass { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-radius: 20px; padding: 26px 30px; color: #eef3fb; box-shadow: 0 10px 34px rgba(0,0,0,.34); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .head .title { font-size: 29px; font-weight: 700; letter-spacing: 1px; }
+  .head .count { font-size: 15px; color: #b9c2d6; }
+  .hint { font-size: 14px; color: #b9c2d6; margin-bottom: 18px; }
+  .dev { background: rgba(10,16,30,.34); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  .dev .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .dev .name { font-size: 20px; font-weight: 700; }
+  .dev .model { font-size: 13px; color: #aab4cc; margin-top: 3px; }
+  .badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .badge.on { background: rgba(61,213,152,.18); color: #5fe3ac; border: 1px solid rgba(61,213,152,.45); }
+  .badge.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
+  .row { font-size: 14px; color: #aab4cc; }
+  .row .k { color: #8b93a7; margin-right: 6px; }
+  .row .v { color: #eef3fb; font-weight: 600; }
+  .row .v.app { color: #9ec7ff; word-break: break-all; }
+  .battery { display: flex; align-items: center; gap: 8px; }
+  .battery .bar { flex: 1; height: 9px; background: rgba(255,255,255,.14); border-radius: 999px; overflow: hidden; }
+  .battery .fill { height: 100%; border-radius: 999px; }
+  .fill.hi { background: linear-gradient(90deg,#3dd598,#6ee7b7); }
+  .fill.mid { background: linear-gradient(90deg,#ffb74d,#ffd54f); }
+  .fill.lo { background: linear-gradient(90deg,#ff6363,#ff8a8a); }
+  .meta { font-size: 13px; color: #8b93a7; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="glass">
+    <div class="head">
+      <div class="title">{{ title }}</div>
+      <div class="count">{{ count }} 台设备 · 在线 {{ onlineCount }}</div>
+    </div>
+    <div class="hint">{{ hint }}</div>
+    {{ each devices d }}
+    <div class="dev">
+      <div class="top">
+        <div>
+          <div class="name">{{ d.device_name }}</div>
+          <div class="model">{{ d.device_model }} · {{ d.report_time_text }}</div>
+        </div>
+        <div class="badge {{ d.online ? "on" : "off" }}">{{ d.online ? "在线" : "离线" }}</div>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="k">正在使用</span><span class="v app">{{ d.appText }}</span></div>
+        <div class="row"><span class="k">电池</span><span class="v"><span class="battery"><span class="bar"><span class="fill {{ d.battery_class }}" style="width: {{ d.battery_width }}%;"></span></span> {{ d.batteryText }}</span></span></div>
+        <div class="row"><span class="k">屏幕</span><span class="v">{{ d.screenText }}</span></div>
+        <div class="row"><span class="k">网络</span><span class="v">{{ d.networkText }}</span></div>
+        <div class="row"><span class="k">充电</span><span class="v">{{ d.chargingText }}</span></div>
+        <div class="row"><span class="k">最近上报</span><span class="v">{{ d.last_report_short }}</span></div>
+      </div>
+    </div>
+    {{ /each }}
+    <div class="meta"><span>Mugshot · 全部设备状态</span><span>{{ server }}</span></div>
+  </div>
+</div>
+</body>
+</html>

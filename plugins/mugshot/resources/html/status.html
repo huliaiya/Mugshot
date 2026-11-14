@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: #0f1420; width: 720px; }
-  .card { padding: 34px 38px; color: #e8ecf4; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
+  .card { padding: 34px 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
   .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
   .head .title { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
   .head .sub { font-size: 15px; color: #8b93a7; margin-top: 6px; }
