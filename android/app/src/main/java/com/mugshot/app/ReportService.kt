@@ -32,24 +32,47 @@ class ReportService : Service(), WsClient.Listener {
         const val ACTION_START = "com.mugshot.app.START"
         const val ACTION_STOP = "com.mugshot.app.STOP"
 
+        @Volatile
         var isRunning = false
             private set
 
         /** 服务内 WS 客户端当前连接状态（供首页直接读取） */
+        @Volatile
         var currentState: String = WsClient.STATE_OFFLINE
             private set
 
+        // 界面订阅者：服务连接状态变化时实时回调，首页无需等到 onResume 才刷新。
+        // 回调可能来自 WS 的后台线程，订阅方自行切回主线程。
+        private val listeners = java.util.concurrent.CopyOnWriteArrayList<WsClient.Listener>()
+
+        fun addListener(l: WsClient.Listener) {
+            if (!listeners.contains(l)) listeners.add(l)
+        }
+
+        fun removeListener(l: WsClient.Listener) {
+            listeners.remove(l)
+        }
+
         fun start(ctx: Context) {
             val intent = Intent(ctx, ReportService::class.java).setAction(ACTION_START)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
+            } catch (e: Exception) {
+                // 后台拉起前台服务在部分系统上会被限制，失败不应导致崩溃
+                LogStore.log("service", "拉起上报服务失败：" + (e.message ?: "未知错误"))
             }
         }
 
         fun stop(ctx: Context) {
-            ctx.stopService(Intent(ctx, ReportService::class.java))
+            try {
+                ctx.stopService(Intent(ctx, ReportService::class.java))
+            } catch (e: Exception) {
+                LogStore.log("service", "停止上报服务失败：" + (e.message ?: "未知错误"))
+            }
         }
     }
 
@@ -91,6 +114,7 @@ class ReportService : Service(), WsClient.Listener {
         wsClient = null
         isRunning = false
         currentState = WsClient.STATE_OFFLINE
+        for (l in listeners) l.onStateChanged(WsClient.STATE_OFFLINE)
         super.onDestroy()
     }
 
@@ -116,11 +140,13 @@ class ReportService : Service(), WsClient.Listener {
         }
         LogStore.log("state", text)
         updateNotification(text)
+        for (l in listeners) l.onStateChanged(state)
     }
 
     override fun onServiceDegraded(reason: String) {
         LogStore.log("service", reason)
         updateNotification(reason)
+        for (l in listeners) l.onServiceDegraded(reason)
     }
 
     // ---- notification ----

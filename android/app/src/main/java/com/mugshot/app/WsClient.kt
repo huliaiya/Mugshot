@@ -1,5 +1,8 @@
 package com.mugshot.app
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import okhttp3.OkHttpClient
@@ -17,7 +20,7 @@ import java.util.concurrent.TimeUnit
  *  2. 服务端回 register_ok 后进入正常收发
  *  3. 每 25s 发 heartbeat；每 reportIntervalSec 发定时 report
  *  4. 收到 request_report（带 request_id）立即采集上报，request_id 原样带回
- *  5. 断线指数退避重连（1s 起，最长 5 分钟）
+ *  5. 断线指数退避重连（1s 起，最长 5 分钟）；网络恢复/切换时立即重连
  */
 class WsClient(
     private val context: android.content.Context,
@@ -54,6 +57,12 @@ class WsClient(
     private var reportTask: Runnable? = null
     private var lastRequestTs = 0L
 
+    // 网络状态监听：网络恢复/切换时立即重连，不必等指数退避计时
+    private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var netSeenOnce = false
+    private var reconnectRunnable: Runnable? = null
+
     fun start() {
         if (!Prefs.isConfigured()) {
             LogStore.log("ws", "未配置服务器，跳过连接")
@@ -61,11 +70,15 @@ class WsClient(
             return
         }
         closed = false
+        netSeenOnce = false
         connect()
+        registerNetworkCallback()
     }
 
     fun stop() {
         closed = true
+        cancelReconnect()
+        unregisterNetworkCallback()
         cancelTimers()
         ws?.close(1000, "client stop")
         ws = null
@@ -73,10 +86,19 @@ class WsClient(
     }
 
     private fun wsUrl(): String {
-        val base = Prefs.serverUrl.trim().trimEnd('/')
+        val raw = Prefs.serverUrl.trim().trimEnd('/')
+        val base = when {
+            raw.startsWith("https://") || raw.startsWith("wss://") -> raw
+            raw.startsWith("http://") || raw.startsWith("ws://") -> raw
+            // 无 scheme（如 `1.2.3.4:8080`、`mugshot.example.com`）：缺省按 https 处理，
+            // 否则 OkHttp 收到的 URL 不合法会直接连不上
+            else -> "https://$raw"
+        }
         val url = when {
             base.startsWith("https://") -> "wss://" + base.removePrefix("https://")
             base.startsWith("http://") -> "ws://" + base.removePrefix("http://")
+            base.startsWith("wss://") -> base
+            base.startsWith("ws://") -> base
             else -> base
         }
         return "$url/ws/device?token=" + java.net.URLEncoder.encode(Prefs.deviceToken, "UTF-8")
@@ -91,6 +113,7 @@ class WsClient(
 
     private val deviceListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            if (webSocket !== ws) return
             val register = JSONObject().apply {
                 put("type", "register")
                 put("device_id", Prefs.deviceId)
@@ -106,6 +129,7 @@ class WsClient(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (webSocket !== ws) return
             try {
                 val msg = JSONObject(text)
                 when (msg.optString("type")) {
@@ -120,6 +144,7 @@ class WsClient(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            if (webSocket !== ws) return
             cancelTimers()
             LogStore.log("ws", "连接失败：" + (t.message ?: "未知错误"))
             setState(STATE_ERROR)
@@ -127,6 +152,7 @@ class WsClient(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            if (webSocket !== ws) return
             cancelTimers()
             LogStore.log("ws", "连接关闭 code=$code reason=$reason")
             setState(STATE_OFFLINE)
@@ -198,10 +224,70 @@ class WsClient(
 
     private fun scheduleReconnect() {
         if (closed) return
+        cancelReconnect()
         val delay = BACKOFF[backoffIdx.coerceAtMost(BACKOFF.size - 1)]
         backoffIdx = (backoffIdx + 1).coerceAtMost(BACKOFF.size - 1)
         LogStore.log("ws", "${delay / 1000} 秒后重连")
-        main.postDelayed({ connect() }, delay)
+        val r = Runnable {
+            reconnectRunnable = null
+            connect()
+        }
+        reconnectRunnable = r
+        main.postDelayed(r, delay)
+    }
+
+    private fun cancelReconnect() {
+        reconnectRunnable?.let { main.removeCallbacks(it) }
+        reconnectRunnable = null
+    }
+
+    // ---- 网络状态监听 ----
+
+    private fun registerNetworkCallback() {
+        if (netCallback != null) return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                main.post {
+                    if (closed) return@post
+                    if (!netSeenOnce) {
+                        // 首次回调只是注册时的当前网络快照：仅当尚未连上时才触发重连
+                        netSeenOnce = true
+                        if (state == STATE_OFFLINE || state == STATE_ERROR) forceReconnect()
+                        return@post
+                    }
+                    LogStore.log("ws", "网络已恢复，立即重连")
+                    forceReconnect()
+                }
+            }
+        }
+        netCallback = cb
+        try {
+            cm.registerDefaultNetworkCallback(cb)
+        } catch (e: Exception) {
+            netCallback = null
+            LogStore.log("ws", "网络状态监听注册失败：" + (e.message ?: "未知错误"))
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val cb = netCallback ?: return
+        netCallback = null
+        try {
+            cm.unregisterNetworkCallback(cb)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 立即重连：取消等待中的退避计时、复位退避；若已有连接则先关闭旧连接。 */
+    private fun forceReconnect() {
+        if (closed) return
+        cancelReconnect()
+        backoffIdx = 0
+        val old = ws
+        ws = null
+        old?.close(1000, "network change")
+        cancelTimers()
+        connect()
     }
 
     private fun setState(s: String) {

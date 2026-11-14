@@ -66,10 +66,12 @@ class HomeFragment : Fragment(), WsClient.Listener {
         super.onResume()
         refreshPermPanel()
         refreshProbeState()
+        ReportService.removeListener(this)
         if (ReportService.isRunning) {
-            // 服务在跑：直接展示服务当前连接状态
+            // 服务在跑：订阅服务的连接状态，实时刷新（不必等 onResume）
             probeWs?.stop()
             probeWs = null
+            ReportService.addListener(this)
             lastState = ReportService.currentState
             renderState(lastState, getString(R.string.home_detail_service))
         } else if (Prefs.isConfigured()) {
@@ -80,6 +82,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
     }
 
     override fun onPause() {
+        ReportService.removeListener(this)
         probeWs?.stop()
         probeWs = null
         super.onPause()
@@ -88,6 +91,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
     // ---- 状态渲染 ----
 
     private fun renderState(state: String, detail: String) {
+        if (view == null) return
         statusView.text = when (state) {
             WsClient.STATE_ONLINE -> getString(R.string.state_online)
             WsClient.STATE_CONNECTING -> getString(R.string.state_connecting)

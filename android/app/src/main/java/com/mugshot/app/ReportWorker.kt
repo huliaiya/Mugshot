@@ -39,7 +39,12 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 put("timestamp", System.currentTimeMillis())
                 put("payload", payload)
             }
-            val url = URL(Prefs.serverUrl.trimEnd('/') + "/api/v1/report")
+            val base = Prefs.serverUrl.trim().trimEnd('/')
+            val normalizedBase = when {
+                base.startsWith("http://") || base.startsWith("https://") -> base
+                else -> "https://$base"
+            }
+            val url = URL(normalizedBase + "/api/v1/report")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.connectTimeout = 10_000
