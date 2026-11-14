@@ -574,8 +574,12 @@ func (a *API) handleHTTPReport(w http.ResponseWriter, r *http.Request) {
 		rep.Payload.BatteryLevel = -1
 	}
 	d := a.store.ApplyReport(deviceID, deviceName, rep)
-	log.Printf("[report] 设备 %s(%s) HTTP上报 app=%q battery=%d%% net=%s",
-		d.DeviceName, maskID(d.DeviceID), rep.Payload.ForegroundApp, rep.Payload.BatteryLevel, rep.Payload.NetworkType)
+	missing := ""
+	if m := missingPayloadFields(&rep.Payload); m != "" {
+		missing = m
+	}
+	log.Printf("[report] 设备 %s(%s) HTTP上报 app=%q battery=%d%% net=%s%s",
+		d.DeviceName, maskID(d.DeviceID), rep.Payload.ForegroundApp, rep.Payload.BatteryLevel, rep.Payload.NetworkType, missing)
 	a.hub.broadcast("device_update", map[string]any{"device": d, "report": rep}, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "server_time": nowMs()})
 }

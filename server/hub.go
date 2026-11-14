@@ -289,9 +289,13 @@ func (h *Hub) handleReport(conn *DeviceConn, msg *deviceMsg) {
 	if msg.RequestID != "" {
 		source = "响应服务端主动要求"
 	}
-	log.Printf("[report] 设备 %s(%s) %s app=%q screen=%v battery=%d%% %s net=%s",
+	missing := ""
+	if m := missingPayloadFields(&rep.Payload); m != "" {
+		missing = m
+	}
+	log.Printf("[report] 设备 %s(%s) %s app=%q screen=%v battery=%d%% %s net=%s%s",
 		d.DeviceName, maskID(d.DeviceID), source, rep.Payload.ForegroundApp, rep.Payload.ScreenOn,
-		rep.Payload.BatteryLevel, rep.Payload.BatteryStatus, rep.Payload.NetworkType)
+		rep.Payload.BatteryLevel, rep.Payload.BatteryStatus, rep.Payload.NetworkType, missing)
 
 	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
 		h.broadcast("device_update", map[string]any{"device": v, "report": rep}, nil)

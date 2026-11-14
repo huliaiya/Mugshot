@@ -116,7 +116,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
         setRow(R.id.row_battery, R.string.label_battery, batteryText(s.batteryLevel, s.batteryStatus, s.chargingSource))
         setRow(R.id.row_network, R.string.label_network, networkText(s.networkType, s.networkDetail))
         setRow(R.id.row_screen, R.string.label_screen, getString(if (s.screenOn) R.string.value_screen_on else R.string.value_screen_off))
-        setRow(R.id.row_foreground, R.string.label_foreground, s.foregroundApp.ifBlank { getString(R.string.value_unknown) })
+        setRow(R.id.row_foreground, R.string.label_foreground, foregroundText(ctx, s))
         setRow(R.id.row_device_model, R.string.label_device_model, s.deviceModel.ifBlank { getString(R.string.value_unknown) })
         setRow(R.id.row_android_ver, R.string.label_android_ver, "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         setRow(R.id.row_device_name, R.string.label_device_name, Prefs.deviceName)
@@ -128,6 +128,17 @@ class HomeFragment : Fragment(), WsClient.Listener {
             if (Prefs.lastReportTs > 0) timeFmt.format(Date(Prefs.lastReportTs)) else getString(R.string.value_never),
         )
         setRow(R.id.row_server, R.string.label_server, Prefs.serverUrl.ifBlank { "—" })
+    }
+
+    /** 前台应用：拿不到时给出可操作的说明，而非笼统的“未知” */
+    private fun foregroundText(ctx: android.content.Context, s: StatusCollector.Snapshot): String {
+        if (s.foregroundApp.isNotBlank()) return s.foregroundApp
+        if (s.foregroundPackage.isNotBlank()) return s.foregroundPackage
+        return when {
+            !StatusCollector.hasUsageAccess(ctx) -> "未获取（需授权“使用情况访问”）"
+            !s.screenOn -> "未获取（息屏中）"
+            else -> getString(R.string.value_unknown)
+        }
     }
 
     private fun setRow(rowId: Int, labelRes: Int, value: String) {
