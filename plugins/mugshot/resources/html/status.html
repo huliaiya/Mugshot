@@ -4,31 +4,34 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
-  .card { padding: 34px 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .card { padding: 34px 38px; background: rgba(10,16,30,.66); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
   .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
-  .head .title { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
-  .head .sub { font-size: 15px; color: #8b93a7; margin-top: 6px; }
+  .head .title { font-size: 30px; font-weight: 700; letter-spacing: 1px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .head .sub { font-size: 15px; color: {{ backdrop.accents[5] }}; margin-top: 6px; }
   .badge { font-size: 15px; padding: 5px 14px; border-radius: 999px; font-weight: 600; }
   .badge.live { background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); }
   .badge.cache { background: rgba(255,183,77,.13); color: #ffb74d; border: 1px solid rgba(255,183,77,.4); }
   .badge.none { background: rgba(255,99,99,.13); color: #ff6363; border: 1px solid rgba(255,99,99,.4); }
   .status-note { font-size: 14px; color: #ffb74d; background: rgba(255,183,77,.08); border: 1px dashed rgba(255,183,77,.35); border-radius: 10px; padding: 9px 14px; margin-bottom: 18px; }
   .status-note.warn { color: #ff8a8a; background: rgba(255,99,99,.08); border-color: rgba(255,99,99,.35); }
-  .app-hero { background: linear-gradient(135deg, #1b2437 0%, #151c2c 100%); border: 1px solid #2a3550; border-radius: 18px; padding: 26px 28px; margin-bottom: 18px; }
-  .app-hero .label { font-size: 14px; color: #8b93a7; margin-bottom: 8px; }
-  .app-hero .app { font-size: 30px; font-weight: 700; color: #7fb2ff; word-break: break-all; }
+  .app-hero { background: linear-gradient(135deg, {{ backdrop.fallbackColor }}b3 0%, rgba(10,16,30,.72) 100%); border: 1px solid #2a3550; border-radius: 18px; padding: 26px 28px; margin-bottom: 18px; }
+  .app-hero .label { font-size: 14px; color: {{ backdrop.accents[3] }}; margin-bottom: 8px; }
+  .app-hero .app { font-size: 30px; font-weight: 700; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; word-break: break-all; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
-  .cell { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 16px 20px; }
-  .cell .label { font-size: 14px; color: #8b93a7; margin-bottom: 8px; }
-  .cell .value { font-size: 22px; font-weight: 600; }
+  .cell { background: rgba(10,16,30,.55); border: 1px solid #263150; border-radius: 14px; padding: 16px 20px; }
+  .cell .label { font-size: 14px; color: {{ backdrop.accents[3] }}; margin-bottom: 8px; }
+  .cell .value { font-size: 22px; font-weight: 700; }
+  .cell:nth-child(1) .value { color: {{ backdrop.accents[0] }}; }
+  .cell:nth-child(2) .value { color: {{ backdrop.accents[2] }}; }
+  .cell:nth-child(4) .value { color: {{ backdrop.accents[4] }}; }
   .battery-row { display: flex; align-items: center; gap: 14px; }
   .battery-bar { flex: 1; height: 12px; background: #0d1320; border-radius: 999px; overflow: hidden; border: 1px solid #2a3550; }
   .battery-fill { height: 100%; border-radius: 999px; }
   .battery-fill.hi { background: linear-gradient(90deg, #3dd598, #6ee7b7); }
   .battery-fill.mid { background: linear-gradient(90deg, #ffb74d, #ffd54f); }
   .battery-fill.lo { background: linear-gradient(90deg, #ff6363, #ff8a8a); }
-  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+  .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
 </style>
 </head>
 <body>

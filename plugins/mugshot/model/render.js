@@ -41,6 +41,7 @@ async function renderByHostPuppeteer(tpl, data) {
     saveId: tpl,
     tplFile: path.join(PLUGIN_DIR, "resources", "html", `${tpl}.html`),
     pluResPath: `${PLUGIN_DIR}/resources/`,
+    imgType: "png",
     quality: 100,
     pageGotoParams: { waitUntil: "networkidle0" },
     ...data,
@@ -60,7 +61,7 @@ export async function renderCard(e, tpl, data) {
   // 第 1 级：runtime.render
   try {
     if (e?.runtime && typeof e.runtime.render === "function") {
-      const img = toImageElement(await e.runtime.render(PLUGIN_NAME, `html/${tpl}`, data, { retType: "base64" }))
+      const img = toImageElement(await e.runtime.render(PLUGIN_NAME, `html/${tpl}`, data, { retType: "base64", imgType: "png" }))
       if (img) return img
       logger.warn(`[Mugshot] runtime.render 渲染 ${tpl} 未返回图片，尝试宿主 puppeteer 渲染`)
     }

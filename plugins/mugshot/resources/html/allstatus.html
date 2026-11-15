@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; width: 760px; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; width: 760px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
   .wrap { min-height: 100%; background: {{ backdrop.background }}; padding: 26px; }
   .glass { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
     border-radius: 20px; padding: 26px 30px; color: #eef3fb; box-shadow: 0 10px 34px rgba(0,0,0,.34); }
   .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .head .title { font-size: 29px; font-weight: 700; letter-spacing: 1px; }
-  .head .count { font-size: 15px; color: #b9c2d6; }
-  .hint { font-size: 14px; color: #b9c2d6; margin-bottom: 18px; }
-  .dev { background: rgba(10,16,30,.34); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  .head .title { font-size: 29px; font-weight: 700; letter-spacing: 1px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .head .count { font-size: 15px; color: {{ backdrop.accents[5] }}; }
+  .hint { font-size: 14px; color: {{ backdrop.accents[5] }}; margin-bottom: 18px; }
+  .dev { background: rgba(10,16,30,.45); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
   .dev .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .dev .name { font-size: 20px; font-weight: 700; }
   .dev .model { font-size: 13px; color: #aab4cc; margin-top: 3px; }
@@ -22,9 +22,9 @@
   .badge.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
   .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
   .row { font-size: 14px; color: #aab4cc; }
-  .row .k { color: #8b93a7; margin-right: 6px; }
+  .row .k { color: {{ backdrop.accents[3] }}; margin-right: 6px; }
   .row .v { color: #eef3fb; font-weight: 600; }
-  .row .v.app { color: #9ec7ff; word-break: break-all; }
+  .row .v.app { background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; word-break: break-all; font-weight: 700; }
   .battery { display: flex; align-items: center; gap: 8px; }
   .battery .bar { flex: 1; height: 9px; background: rgba(255,255,255,.14); border-radius: 999px; overflow: hidden; }
   .battery .fill { height: 100%; border-radius: 999px; }
@@ -46,7 +46,7 @@
     <div class="dev">
       <div class="top">
         <div>
-          <div class="name">{{ d.device_name }}</div>
+          <div class="name" style="color: {{ backdrop.accents[$index % 6] }};">{{ d.device_name }}</div>
           <div class="model">{{ d.device_model }} · {{ d.report_time_text }}</div>
         </div>
         <div class="badge {{ d.online ? "on" : "off" }}">{{ d.online ? "在线" : "离线" }}</div>

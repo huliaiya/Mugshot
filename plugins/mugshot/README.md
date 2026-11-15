@@ -61,7 +61,8 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 - `#群主在干嘛` 与 `#群主列表` 的设备卡片在 QQBot 适配器下附带设备按钮，点击即查看对应单台
 - 所有回复均优先渲染为图片；QQBot 适配器下附带可点击按钮，其他协议端自动降级为纯图片
 - 渲染走三级渲染链：`e.runtime.render` → 宿主 `lib/puppeteer/puppeteer.js`（huli-plugins 同款，绕开 runtime 依赖）→ `Bot.renderer`；宿主能渲染其他插件的图即可渲染本插件图
-- 卡片风格为随机背景图（`https://t.alcy.cc/mp`，5 分钟自动更换，获取失败回退渐变底色）+ 半透明毛玻璃面板
+- 卡片风格为随机背景图（`https://t.alcy.cc/mp`，5 分钟自动更换，获取失败回退渐变底色）+ 半透明毛玻璃面板 + 彩色文字：每张卡片随机一组色板，标题渐变字、标签与数值按色板着色
+- 出图为 PNG 并按 2 倍缩放渲染（zoom: 2），文字清晰无压缩噪点
 - 实时上报有冷却（`fresh_cooldown_ms`），同一用户短时间内重复触发会自动展示缓存数据，避免频繁唤醒手机
 
 ## 更新

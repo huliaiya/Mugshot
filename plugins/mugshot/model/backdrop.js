@@ -33,6 +33,15 @@ function randomGradient() {
   }
 }
 
+// 彩色文字色板：每次渲染随机一个基准色相，等距旋转出 6 个高亮度强调色，
+// 模板用它给标题（渐变字）、标签、数值着色——每张卡片、每次渲染配色都不同。
+// hsl 空格语法不含 & < > " '，可安全通过 art-template 的 $escape 输出。
+function randomAccents() {
+  const hue = Math.floor(Math.random() * 360)
+  const step = 360 / 6
+  return Array.from({ length: 6 }, (_, i) => `hsl(${(hue + i * step) % 360} 88% 70%)`)
+}
+
 async function fetchBackdropImage() {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT)
@@ -72,12 +81,13 @@ refreshCache()
 const refreshTimer = setInterval(refreshCache, CACHE_TTL)
 if (typeof refreshTimer.unref === "function") refreshTimer.unref()
 
-// 返回 CSS background 值（背景图层叠渐变兜底），供模板 {{ backdrop.background }} 直接使用；
-// 背景图未就绪时仅返回渐变底色
+// 返回背景与彩色文字色板，供模板 {{ backdrop.background }} / {{ backdrop.accents[i] }} 使用；
+// 背景图未就绪时仅返回渐变底色；色板每次渲染随机
 export function getBackdrop() {
   const { gradient, fallbackColor } = randomGradient()
+  const accents = randomAccents()
   if (cache) {
-    return { background: `${cache.dataUri}, ${gradient}`, fallbackColor }
+    return { background: `${cache.dataUri}, ${gradient}`, fallbackColor, accents }
   }
-  return { background: gradient, fallbackColor }
+  return { background: gradient, fallbackColor, accents }
 }

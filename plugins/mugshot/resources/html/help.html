@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
-  .card { padding: 34px 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .card { padding: 34px 38px; background: rgba(10,16,30,.66); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
   .head { margin-bottom: 20px; }
-  .title { font-size: 30px; font-weight: 700; margin-bottom: 8px; }
-  .group { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 8px 22px; margin-bottom: 14px; }
-  .group h3 { font-size: 17px; color: #7fb2ff; padding: 12px 0 2px; }
+  .title { font-size: 30px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .group { background: rgba(10,16,30,.55); border: 1px solid #263150; border-radius: 14px; padding: 8px 22px; margin-bottom: 14px; }
+  .group h3 { font-size: 17px; padding: 12px 0 2px; }
   .group .item { display: flex; padding: 10px 0; border-bottom: 1px solid #1f2a44; font-size: 15.5px; }
   .group .item:last-child { border-bottom: none; }
-  .group .cmd { width: 210px; color: #ffd54f; font-weight: 600; flex-shrink: 0; }
-  .group .desc { color: #b6bfcf; }
-  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; margin-top: 6px; }
+  .group .cmd { width: 210px; font-weight: 600; flex-shrink: 0; }
+  .group .desc { color: #c3ccdd; }
+  .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -22,9 +22,9 @@
   <div class="head"><div class="title">{{ title }}</div></div>
   {{ each groups g }}
   <div class="group">
-    <h3>{{ g.name }}</h3>
+    <h3 style="color: {{ backdrop.accents[$index % 6] }};">{{ g.name }}</h3>
     {{ each g.list i }}
-    <div class="item"><span class="cmd">{{ i.cmd }}</span><span class="desc">{{ i.desc }}</span></div>
+    <div class="item"><span class="cmd" style="color: {{ backdrop.accents[$index % 6] }};">{{ i.cmd }}</span><span class="desc">{{ i.desc }}</span></div>
     {{ /each }}
   </div>
   {{ /each }}
