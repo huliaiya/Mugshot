@@ -136,6 +136,38 @@ object ShizukuHelper {
     private var batteryCacheAt = 0L
     private var batteryCache = -1
 
+    /** 任务栈快照：visible=屏幕上可见（含分屏/悬浮小窗），background=非可见但仍在最近任务里 */
+    data class TaskPackages(val visible: List<String>, val background: List<String>)
+
+    private var tasksCacheAt = 0L
+    private var tasksCache = TaskPackages(emptyList(), emptyList())
+
+    /**
+     * 用 shell 读任务栈，补足事件流拿不到的场景：
+     *  - 部分 ROM 的悬浮小窗 / 自由窗口不产生 ACTIVITY_PAUSED 事件，事件流里看不到
+     *  - 后台仍在最近任务里的应用（多任务界面可切回）也只能从任务栈读到
+     * 结果缓存 60 秒，避免每次上报都 fork dumpsys（dumpsys activity 输出较大，频繁调用会明显耗电）。
+     */
+    fun taskPackages(): TaskPackages {
+        val now = System.currentTimeMillis()
+        if (now - tasksCacheAt < 60_000L) return tasksCache
+        tasksCacheAt = now
+        if (!hasPermission()) return tasksCache
+        val (code, out) = shell("dumpsys activity activities")
+        if (code != 0 || out.isEmpty()) return tasksCache
+        val visible = LinkedHashSet<String>()
+        val background = LinkedHashSet<String>()
+        val taskRe = Regex("""Task\{[^}]*\}""")
+        val pkgRe = Regex("""\bA=([A-Za-z][\w.]*\.[\w.]+)""")
+        for (m in taskRe.findAll(out)) {
+            val block = m.value
+            val pkg = pkgRe.find(block)?.groupValues?.get(1) ?: continue
+            if (block.contains("visible=true")) visible += pkg else background += pkg
+        }
+        tasksCache = TaskPackages(visible.toList(), background.toList())
+        return tasksCache
+    }
+
     /**
      * 使用情况权限不可用时的前台应用兜底：shell 读 dumpsys activity，
      * 取当前 resumed/top 的包名。失败返回空串。

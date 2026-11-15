@@ -53,6 +53,14 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                     }
                     put("usage_24h", usageArr)
                 }
+                if (snapshot.backgroundApps.isNotEmpty()) {
+                    val bgArr = org.json.JSONArray()
+                    for ((label, pkg) in snapshot.backgroundApps) {
+                        bgArr.put(org.json.JSONObject().put("app", label).put("package", pkg))
+                    }
+                    put("background_apps", bgArr)
+                }
+                if (snapshot.batteryTempC > 0) put("battery_temp_c", snapshot.batteryTempC)
                 put("battery_level", snapshot.batteryLevel)
                 put("battery_status", snapshot.batteryStatus)
                 put("charging", snapshot.charging)

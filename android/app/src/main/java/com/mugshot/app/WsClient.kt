@@ -248,6 +248,15 @@ class WsClient(
                 }
                 put("usage_24h", usageArr)
             }
+            // 后台应用：最近用过但当前不在前台的（最多 5 个），插件展示"后台"行
+            if (s.backgroundApps.isNotEmpty()) {
+                val bgArr = org.json.JSONArray()
+                for ((label, pkg) in s.backgroundApps) {
+                    bgArr.put(org.json.JSONObject().put("app", label).put("package", pkg))
+                }
+                put("background_apps", bgArr)
+            }
+            if (s.batteryTempC > 0) put("battery_temp_c", s.batteryTempC)
             put("battery_level", s.batteryLevel)
             put("battery_status", s.batteryStatus)
             put("charging", s.charging)

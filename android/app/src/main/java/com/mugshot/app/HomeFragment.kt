@@ -154,6 +154,11 @@ class HomeFragment : Fragment(), WsClient.Listener {
         val ctx = requireContext().applicationContext
         val s = StatusCollector.collect(ctx)
         setRow(R.id.row_battery, R.string.label_battery, batteryText(s.batteryLevel, s.batteryStatus, s.chargingSource))
+        setRow(
+            R.id.row_temperature,
+            R.string.label_temperature,
+            if (s.batteryTempC > 0) String.format("%.1f°C", s.batteryTempC) else getString(R.string.value_unknown),
+        )
         setRow(R.id.row_network, R.string.label_network, networkText(s.networkType, s.networkDetail))
         setRow(R.id.row_screen, R.string.label_screen, getString(if (s.screenOn) R.string.value_screen_on else R.string.value_screen_off))
         setRow(R.id.row_foreground, R.string.label_foreground, foregroundText(ctx, s))

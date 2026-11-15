@@ -89,6 +89,7 @@
     <!-- 首页 -->
     <string name="home_section_device">设备信息</string>
     <string name="label_battery">电池</string>
+    <string name="label_temperature">温度</string>
     <string name="label_network">网络</string>
     <string name="label_screen">屏幕</string>
     <string name="label_foreground">当前应用</string>

@@ -79,6 +79,7 @@
             android:padding="16dp">
 
             <include layout="@layout/view_info_row" android:id="@+id/row_battery" />
+            <include layout="@layout/view_info_row" android:id="@+id/row_temperature" />
             <include layout="@layout/view_info_row" android:id="@+id/row_network" />
             <include layout="@layout/view_info_row" android:id="@+id/row_screen" />
             <include layout="@layout/view_info_row" android:id="@+id/row_foreground" />

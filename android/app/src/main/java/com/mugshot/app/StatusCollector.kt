@@ -30,11 +30,13 @@ object StatusCollector {
         val screenOn: Boolean,
         val foregroundApp: String,
         val foregroundPackage: String,
-        val foregroundApps: List<Pair<String, String>>, // 分屏/小窗等同时可见的应用，焦点在前，最多 3 个
+        val foregroundApps: List<Pair<String, String>>, // 分屏/小窗等同时可见的应用，焦点在前，最多 5 个
+        val backgroundApps: List<Pair<String, String>>, // 最近 30 分钟内用过、当前不在前台的运行中应用，最多 5 个
         val batteryLevel: Int,
         val batteryStatus: String,   // charging | full | discharging | unknown
         val charging: Boolean,
         val chargingSource: String,  // ac | usb | wireless | none
+        val batteryTempC: Double,    // 电池温度（摄氏度），-1 表示读不到
         val networkType: String,     // wifi | mobile | none
         val networkDetail: String,
         val deviceModel: String,
@@ -70,8 +72,9 @@ object StatusCollector {
         val missing = missingFields(ctx, s)
         val app = if (s.foregroundApps.size >= 2) s.foregroundApps.joinToString(" / ") { it.first }
         else s.foregroundApp
+        val temp = if (s.batteryTempC > 0) String.format("%.1f°C", s.batteryTempC) else "-"
         val base = "app=${app.ifBlank { "-" }} 电量=${if (s.batteryLevel >= 0) "${s.batteryLevel}%" else "-"} " +
-            "屏幕=${if (s.screenOn) "亮" else "灭"} 网络=${s.networkType}"
+            "温度=$temp 后台=${s.backgroundApps.size} 屏幕=${if (s.screenOn) "亮" else "灭"} 网络=${s.networkType}"
         return if (missing.isEmpty()) base else "$base | 缺失：${missing.joinToString("；")}"
     }
 
@@ -85,16 +88,23 @@ object StatusCollector {
         // 分屏/小窗里失焦的那半屏应用在事件流里是 ACTIVITY_PAUSED（未 STOPPED），单应用逻辑取不到；
         // 息屏时不采集（暂停状态会被误判为可见），低版本系统见 visibleApps 内的说明。
         val fgApps = if (screenOn) visibleApps(ctx) else emptyList()
+        val bgApps = if (screenOn) {
+            collectBackgroundApps(ctx, fg.second, fgApps.map { it.second }.toSet(), System.currentTimeMillis())
+        } else {
+            emptyList()
+        }
 
         return Snapshot(
             screenOn = screenOn,
             foregroundApp = fg.first,
             foregroundPackage = fg.second,
             foregroundApps = fgApps,
-            batteryLevel = battery.first,
-            batteryStatus = battery.second,
-            charging = battery.second == "charging" || battery.second == "full",
-            chargingSource = battery.third,
+            backgroundApps = bgApps,
+            batteryLevel = battery.level,
+            batteryStatus = battery.status,
+            charging = battery.status == "charging" || battery.status == "full",
+            chargingSource = battery.source,
+            batteryTempC = battery.tempC,
             networkType = network.first,
             networkDetail = network.second,
             deviceModel = Build.MODEL ?: "",
@@ -190,9 +200,16 @@ object StatusCollector {
         return usageCache
     }
 
-    /** (level, status, source) */
+    /** 电池：容量、充电状态、充电来源、温度（读不到时 level=-1、tempC=-1） */
+    private data class BatteryState(
+        val level: Int,
+        val status: String,
+        val source: String,
+        val tempC: Double,
+    )
+
     @Suppress("DEPRECATION")
-    private fun batteryState(ctx: Context): Triple<Int, String, String> {
+    private fun batteryState(ctx: Context): BatteryState {
         val intent = ctx.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         var level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 } ?: -1
@@ -207,7 +224,11 @@ object StatusCollector {
 
         var status = "unknown"
         var source = "none"
+        var tempC = -1.0
         if (intent != null) {
+            // EXTRA_TEMPERATURE 单位是 0.1 摄氏度；部分机型会带电池温度，读不到时为 0
+            val rawTemp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0)
+            if (rawTemp > 0) tempC = rawTemp / 10.0
             val st = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
             val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
             source = when (plugged) {
@@ -224,7 +245,7 @@ object StatusCollector {
             }
             if (plugged != 0 && status == "unknown") status = "charging"
         }
-        return Triple(level, status, source)
+        return BatteryState(level, status, source, tempC)
     }
 
     /** (type, detail) */
@@ -340,14 +361,81 @@ object StatusCollector {
                 state[p] = t
             }
         }
-        return state.entries
+        val fromEvents = state.entries
             .filter {
                 it.value == UsageEvents.Event.ACTIVITY_RESUMED || it.value == UsageEvents.Event.ACTIVITY_PAUSED
             }
             .sortedByDescending { resumeTs[it.key] ?: 0L }
-            .take(3)
-            .map { Pair(appLabel(ctx, it.key).ifBlank { it.key }, it.key) }
+            .map { it.key }
+        // 事件流看不到的悬浮小窗/自由窗口，用 Shizuku 的任务栈补齐（已可见的排前面）
+        val pkgs = LinkedHashSet(fromEvents)
+        if (ShizukuHelper.hasPermission()) {
+            pkgs.addAll(ShizukuHelper.taskPackages().visible)
+        }
+        return pkgs
+            .filter { !isNoisePackage(ctx, it) }
+            .take(5)
+            .map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
     }
+
+    /**
+     * 后台应用：最近 30 分钟用过、当前不在前台/可见列表里的应用（按最后使用时间倒序）。
+     * 事件流判定"最近用过"，Shizuku 任务栈补充"仍在最近任务里"的条目，两者合并去重。
+     * 需要"使用情况访问权限"；没有该权限时只返回任务栈结果（可能为空）。
+     */
+    private fun collectBackgroundApps(
+        ctx: Context,
+        foregroundPkg: String,
+        visiblePkgs: Set<String>,
+        now: Long,
+    ): List<Pair<String, String>> {
+        val exclude = HashSet(visiblePkgs)
+        exclude += foregroundPkg
+        val result = LinkedHashSet<String>()
+        if (hasUsageAccess(ctx)) {
+            val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val stats = try {
+                usm?.queryUsageStats(UsageStatsManager.INTERVAL_BEST, now - 30 * 60_000L, now)
+            } catch (_: Exception) {
+                null
+            }
+            stats?.asSequence()
+                ?.filter { it.lastTimeUsed > 0 && it.totalTimeInForeground > 0 }
+                ?.sortedByDescending { it.lastTimeUsed }
+                ?.take(20)
+                ?.forEach { st ->
+                    val pkg = st.packageName ?: return@forEach
+                    if (result.size >= 5) return@forEach
+                    if (pkg in exclude || isNoisePackage(ctx, pkg)) return@forEach
+                    result += pkg
+                }
+        }
+        if (ShizukuHelper.hasPermission()) {
+            for (p in ShizukuHelper.taskPackages().background) {
+                if (result.size >= 5) break
+                if (p in exclude || isNoisePackage(ctx, p)) continue
+                result += p
+            }
+        }
+        return result.take(5).map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
+    }
+
+    /** 自身、桌面、SystemUI 不算"应用"，避免后台/可见列表被系统进程占位 */
+    private fun isNoisePackage(ctx: Context, pkg: String): Boolean {
+        if (pkg == ctx.packageName) return true
+        if (pkg == "com.android.systemui") return true
+        if (launcherPkg == null) {
+            launcherPkg = try {
+                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                ctx.packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
+            } catch (_: Exception) {
+                ""
+            }
+        }
+        return pkg == launcherPkg
+    }
+
+    private var launcherPkg: String? = null
 
     /**
      * 包名 -> 应用名缓存。PM 查询是跨进程调用，每次上报都重复解析同一批包名
