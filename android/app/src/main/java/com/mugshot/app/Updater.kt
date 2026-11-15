@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import androidx.core.content.FileProvider
 import okhttp3.OkHttpClient
@@ -16,6 +17,9 @@ import java.util.concurrent.TimeUnit
 /**
  * 应用内更新：GitHub Releases 版本检查（主源 api.github.com + 备用源 releases/latest 重定向解析）。
  * 下载 APK 到外部缓存目录后经 FileProvider 拉起安装（需"安装未知应用"授权）。
+ *
+ * 下载健壮性：.part 临时文件 + 校验后原子改名（杜绝半截包被安装）、
+ * 失败自动重试 3 次、下载链路独立 30s/60s 超时（弱网 GitHub 慢速场景）。
  */
 object Updater {
 
@@ -25,6 +29,12 @@ object Updater {
     private val client = OkHttpClient.Builder()
         .connectTimeout(TIMEOUT_SEC, TimeUnit.SECONDS)
         .readTimeout(TIMEOUT_SEC, TimeUnit.SECONDS)
+        .build()
+
+    // 下载专用：GitHub 大文件在弱网下容易读超时，放宽到 60s 并带重试
+    private val downloadClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     data class ReleaseInfo(val tag: String, val notes: String, val apkUrl: String?)
@@ -96,37 +106,89 @@ object Updater {
         return false
     }
 
-    /** 下载 APK 到外部缓存，返回文件 */
+    /** 下载 APK（.part 临时文件 + 校验 + 原子改名，重试 3 次），返回可安装的完整包 */
     fun downloadApk(ctx: Context, url: String): File {
         val dir = ctx.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: ctx.cacheDir
         val file = File(dir, "mugshot-update.apk")
-        val req = Request.Builder().url(url).build()
-        client.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw RuntimeException("下载失败 HTTP ${resp.code}")
-            val sink = file.outputStream()
-            resp.body?.byteStream()?.use { input -> sink.use { input.copyTo(it) } }
+        val part = File(dir, "mugshot-update.apk.part")
+        var lastErr: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                val expected = tryDownload(url, part)
+                if (part.length() <= 0L) throw RuntimeException("下载内容为空")
+                if (expected > 0L && part.length() != expected) {
+                    throw RuntimeException("下载不完整（${part.length()}/${expected} 字节）")
+                }
+                // 校验通过后原子替换，保证安装时拿到的永远是完整包
+                if (file.exists() && !file.delete()) throw RuntimeException("清理旧安装包失败")
+                if (!part.renameTo(file)) throw RuntimeException("安装包落盘失败")
+                LogStore.log("update", "APK 下载完成（${file.length() / 1024}KB，第 $attempt 次尝试）")
+                return file
+            } catch (e: Exception) {
+                lastErr = e
+                LogStore.log("update", "下载失败（第 $attempt/3 次）：${e.message ?: "未知错误"}")
+                try {
+                    part.delete()
+                } catch (_: Exception) {
+                }
+                if (attempt < 3) Thread.sleep(1500L * attempt)
+            }
         }
-        return file
+        throw lastErr ?: RuntimeException("下载失败")
     }
 
-    /** 拉起安装器（FileProvider + package archive） */
+    private fun tryDownload(url: String, part: File): Long {
+        val req = Request.Builder().url(url).build()
+        downloadClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw RuntimeException("下载失败 HTTP ${resp.code}")
+            val body = resp.body ?: throw RuntimeException("下载内容为空")
+            val expected = body.contentLength()
+            body.byteStream().use { input ->
+                part.outputStream().use { output -> input.copyTo(output) }
+            }
+            return expected
+        }
+    }
+
+    /** 拉起安装器（FileProvider + package archive）；Android 8+ 未授权"安装未知应用"时先跳授权页 */
     fun installApk(activity: Activity, apk: File) {
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", apk)
+        if (!apk.exists() || apk.length() <= 0L) {
+            LogStore.log("update", "安装包不存在或为空（${apk.absolutePath}），放弃安装")
+            return
+        }
+        val uri = try {
+            FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", apk)
+        } catch (e: Exception) {
+            LogStore.log("update", "生成 APK 内容 URI 失败：${e.message ?: "未知错误"}")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !activity.packageManager.canRequestPackageInstalls()
+        ) {
+            LogStore.log("update", "未授予「安装未知应用」权限，先跳转授权页（授权后再次检查更新即可安装）")
+            openUnknownSourceSettings(activity)
+            return
+        }
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
             activity.startActivity(intent)
+            LogStore.log("update", "已拉起系统安装器（${apk.length() / 1024}KB）")
+        } catch (e: Exception) {
+            LogStore.log("update", "拉起安装器失败（${e.message ?: "未知错误"}），转授权页")
+            openUnknownSourceSettings(activity)
+        }
+    }
+
+    private fun openUnknownSourceSettings(activity: Activity) {
+        try {
+            activity.startActivity(
+                Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:${activity.packageName}")),
+            )
         } catch (_: Exception) {
-            // 用户未授予"安装未知应用"权限时回退到设置页
-            try {
-                activity.startActivity(
-                    Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
-                        .setData(Uri.parse("package:${activity.packageName}")),
-                )
-            } catch (_: Exception) {
-            }
         }
     }
 }

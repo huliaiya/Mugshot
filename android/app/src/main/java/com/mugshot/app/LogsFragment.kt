@@ -69,10 +69,13 @@ class LogsFragment : Fragment() {
         val tv = view.findViewById<TextView>(R.id.log_view)
         val scroll = view.findViewById<ScrollView>(R.id.log_scroll)
         val logs = if (showHistory) LogStore.snapshot() else LogStore.snapshotSinceRestart()
-        val text = if (logs.isEmpty()) {
-            getString(R.string.log_empty)
-        } else {
-            logs.joinToString("\n")
+        // 日志变详细后行数增多：展示最多截取最近 800 行，完整记录仍在文件里
+        val MAX_DISPLAY_LINES = 800
+        val text = when {
+            logs.isEmpty() -> getString(R.string.log_empty)
+            logs.size <= MAX_DISPLAY_LINES -> logs.joinToString("\n")
+            else -> "……（共 ${logs.size} 行，仅显示最近 $MAX_DISPLAY_LINES 行）\n" +
+                logs.takeLast(MAX_DISPLAY_LINES).joinToString("\n")
         }
         // 内容不变时跳过重绘，减少刷新抖动
         if (text == lastText) return

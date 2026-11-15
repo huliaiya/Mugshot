@@ -15,6 +15,10 @@
     <!-- 应用内自更新安装 APK 时需要（Android 8+） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Android 11+ 包可见性：需解析任意已安装应用（前台/可见应用）的名称。
+         持有 PACKAGE_USAGE_STATS 时系统会自动授予全部可见性，但部分 ROM 的
+         自动可见性实现不稳定，这里显式声明兜底。应用为自行分发，无商店政策限制。 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
         android:name=".MugshotApp"

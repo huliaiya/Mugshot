@@ -196,7 +196,7 @@ func (h *Hub) handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	conn.DeviceID = deviceID
 	conn.DeviceName = deviceName
 
-	h.registerDevice(conn, model)
+	h.registerDevice(conn, model, remoteIP(r), msg.AppVersion)
 	// acknowledge registration so the device can start reporting
 	h.reply(conn, &deviceMsg{Type: "register_ok", Timestamp: nowMs()})
 
@@ -230,6 +230,10 @@ func (h *Hub) handleDeviceMessage(conn *DeviceConn, msg *deviceMsg) {
 		// re-register (e.g. after app reconnect with new name)
 		deviceID, deviceName, model := normalizeDevice(msg.DeviceID, msg.DeviceName, msg.Model)
 		if deviceID == conn.DeviceID {
+			if deviceName != conn.DeviceName {
+				log.Printf("[ws] 设备重新注册 device=%s id=%s（名称变更 -> %q）",
+					conn.DeviceName, maskID(conn.DeviceID), deviceName)
+			}
 			conn.DeviceName = deviceName
 			h.store.UpsertFromRegister(deviceID, deviceName, model)
 			h.reply(conn, &deviceMsg{Type: "register_ok", Timestamp: nowMs()})
@@ -293,9 +297,8 @@ func (h *Hub) handleReport(conn *DeviceConn, msg *deviceMsg) {
 	if m := missingPayloadFields(&rep.Payload); m != "" {
 		missing = m
 	}
-	log.Printf("[report] 设备 %s(%s) %s app=%q screen=%v battery=%d%% %s net=%s%s",
-		d.DeviceName, maskID(d.DeviceID), source, rep.Payload.ForegroundApp, rep.Payload.ScreenOn,
-		rep.Payload.BatteryLevel, rep.Payload.BatteryStatus, rep.Payload.NetworkType, missing)
+	log.Printf("[report] 设备 %s(%s) %s %s%s",
+		d.DeviceName, maskID(d.DeviceID), source, payloadSummary(&rep.Payload), missing)
 
 	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
 		h.broadcast("device_update", map[string]any{"device": v, "report": rep}, nil)
@@ -303,7 +306,7 @@ func (h *Hub) handleReport(conn *DeviceConn, msg *deviceMsg) {
 }
 
 // registerDevice replaces any previous connection of the same device.
-func (h *Hub) registerDevice(conn *DeviceConn, model string) {
+func (h *Hub) registerDevice(conn *DeviceConn, model, ip, appVersion string) {
 	h.mu.Lock()
 	if old := h.deviceConns[conn.DeviceID]; old != nil {
 		go old.Close()
@@ -312,8 +315,8 @@ func (h *Hub) registerDevice(conn *DeviceConn, model string) {
 	h.mu.Unlock()
 
 	d := h.store.UpsertFromRegister(conn.DeviceID, conn.DeviceName, model)
-	log.Printf("[ws] 设备已注册 device=%s id=%s（当前在线 %d 台）",
-		d.DeviceName, maskID(conn.DeviceID), h.OnlineCount())
+	log.Printf("[ws] 设备已注册 device=%s id=%s ip=%s model=%q app=%s（当前在线 %d 台）",
+		d.DeviceName, maskID(conn.DeviceID), ip, model, appVersion, h.OnlineCount())
 	if v := h.viewForBroadcast(conn.DeviceID); v != nil {
 		h.broadcast("device_online", map[string]any{"device": v}, nil)
 	}

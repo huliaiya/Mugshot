@@ -9,6 +9,11 @@ import { PLUGIN_NAME } from "./config.js"
 
 export async function renderCard(e, tpl, data) {
   try {
+    if (!e.runtime || typeof e.runtime.render !== "function") {
+      logger.error(`[Mugshot] 当前 Yunzai 运行环境无 runtime.render（截图渲染器未安装/未启用），` +
+        `指令回复将降级为纯文本；请在 TRSS-Yunzai 安装并配置渲染器（puppeteer）后重试`)
+      return null
+    }
     const img = await e.runtime.render(PLUGIN_NAME, `html/${tpl}`, data, { retType: "base64" })
     if (img) return img
     logger.error(`[Mugshot] 渲染 ${tpl} 未返回图片（请检查 Yunzai 渲染器配置 config/renderer.yaml）`)

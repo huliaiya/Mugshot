@@ -31,6 +31,10 @@ import { checkForUpdate, updatePlugin, silentCheck } from "./model/updater.js"
 // 连发 #群主更新 会重复触发。模块级标志（Mugshot 为单例）保证同一时刻只有一个更新在跑。
 let updating = false
 
+// fresh 冷却表（模块级）：TRSS 每条消息都会 new 一个插件实例，
+// 实例字段撑不过单条消息，冷却必须放模块级才能跨消息生效。
+const freshCooldown = new Map() // user_id -> last fresh query ts
+
 export class Mugshot extends plugin {
   constructor() {
     super({
@@ -49,13 +53,13 @@ export class Mugshot extends plugin {
       rule: [
         { reg: "^#群主帮助$", fnc: "help", permission: "all" },
         { reg: "^#群主列表$", fnc: "deviceList", permission: "all" },
-        { reg: "^#群主(查看|在干嘛)\\s*(.*)$", fnc: "viewDevice", permission: "all" },
+        { reg: "^#群主在干嘛\\s*(.*)$", fnc: "allDoing", permission: "all" },
+        { reg: "^#群主查看\\s*(.*)$", fnc: "viewDevice", permission: "all" },
         { reg: "^#群主详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
         { reg: "^#群主状态$", fnc: "serverStatus", permission: "all" },
         { reg: "^#群主更新$", fnc: "serverUpdate", permission: "master" },
       ],
     })
-    this.freshCooldown = new Map() // user_id -> last fresh query ts
   }
 
   /** 插件初始化：启动 WebSocket 订阅、登记热重载资源回收、延迟做一次更新检查 */
@@ -91,8 +95,8 @@ export class Mugshot extends plugin {
           name: "设备查询",
           list: [
             { cmd: "#群主列表", desc: "查看所有已接入设备（紧凑列表，在线状态/最后上报）" },
-            { cmd: "#群主查看 [设备名]", desc: "不带设备名看全部设备状态与使用情况；带设备名看单台实时状态" },
-            { cmd: "#群主在干嘛 [设备名]", desc: "同 #群主查看（不带设备名时展示全部设备当前状态与使用情况）" },
+            { cmd: "#群主在干嘛", desc: "全部设备此刻在干嘛：实时刷新每台设备的状态、正在使用的软件等" },
+            { cmd: "#群主查看 [设备名]", desc: "带设备名看单台实时状态；不带设备名看全部设备快照" },
             { cmd: "#群主详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
           ],
         },
@@ -138,16 +142,27 @@ export class Mugshot extends plugin {
     ])
   }
 
-  /** #群主查看 [设备名] / #群主在干嘛 [设备名] */
-  async viewDevice() {
-    const name = (this.e.msg.replace(/^#群主(查看|在干嘛)/, "") || "").trim()
-    return this.#view(name, { fresh: true, tpl: "status", title: "设备当前状态" })
+  /**
+   * #群主在干嘛：始终渲染全部设备此刻的状态与正在使用的软件。
+   * 并发触发每台在线设备的一次实时上报（共用单台查询的用户冷却），
+   * 拿到新快照后再渲染，保证卡片展示的是"现在"而不是上次定时上报。
+   */
+  async allDoing() {
+    return this.#renderAllDevices({ live: true })
   }
 
-  /** #群主详情 [设备名] */
+  /** #群主查看 [设备名]：无设备名看全部设备快照，带设备名看单台实时状态 */
+  async viewDevice() {
+    const name = (this.e.msg.replace(/^#群主查看/, "") || "").trim()
+    if (!name) return this.#renderAllDevices({ live: false })
+    return this.#queryAndRender(name, true, "status", "设备当前状态")
+  }
+
+  /** #群主详情 [设备名]：无设备名看全部设备，带设备名看单台完整详情 */
   async deviceDetail() {
     const name = (this.e.msg.replace(/^#群主详情/, "") || "").trim()
-    return this.#view(name, { fresh: !!config.detail_fresh, tpl: "detail", title: "设备详情" })
+    if (!name) return this.#renderAllDevices({ live: !!config.detail_fresh })
+    return this.#queryAndRender(name, !!config.detail_fresh, "detail", "设备详情")
   }
 
   /** #群主状态 */
@@ -272,37 +287,76 @@ export class Mugshot extends plugin {
   // ---------- 内部通用流程 ----------
 
   /**
-   * 查询设备状态并渲染。
-   * 多设备未指定名称时渲染设备选择图片（附按钮），不随意挑选某一台。
+   * 全部设备卡片入口：先取设备列表，live 时并发触发一轮实时上报。
+   * 与单台查询共用同一用户冷却（fresh_cooldown_ms），冷却期内直接用最近快照。
    */
-  async #view(name, { fresh, tpl, title }) {
-    // 1) 未指定设备名：展示全部设备的状态与使用情况（随机背景图卡片）
-    if (!name) {
-      let resp
-      try {
-        resp = await server.getDevices()
-      } catch (err) {
-        return this.#renderError("设备列表获取失败", err.message)
-      }
-      const devices = resp.devices || []
-      if (!devices.length) {
-        return this.#renderError("暂无设备", "还没有任何 Android 设备接入，请先安装并配置 Mugshot App。")
-      }
-      return this.#renderAllStatus(devices, fresh)
+  async #renderAllDevices({ live }) {
+    let resp
+    try {
+      resp = await server.getDevices()
+    } catch (err) {
+      return this.#renderError("设备列表获取失败", err.message)
+    }
+    const devices = resp.devices || []
+    if (!devices.length) {
+      return this.#renderError("暂无设备", "还没有任何 Android 设备接入，请先安装并配置 Mugshot App。")
     }
 
-    // 2) 指定设备名（服务端负责名称解析，含大小写/前缀容错）
-    return this.#queryAndRender(name, fresh, tpl, title)
+    let cooldownNote = ""
+    let refresh = null
+    if (live) {
+      const last = freshCooldown.get(this.e.user_id) || 0
+      const remain = (config.fresh_cooldown_ms || 10000) - (Date.now() - last)
+      if (remain > 0) {
+        cooldownNote = `实时刷新冷却中（${Math.ceil(remain / 1000)} 秒），以下为最近快照`
+      } else {
+        freshCooldown.set(this.e.user_id, Date.now())
+        refresh = await this.#refreshOnlineDevices(devices)
+      }
+    }
+    return this.#renderAllStatus(devices, live, cooldownNote, refresh)
   }
 
-  /** 全部设备状态 + 使用情况（随机背景图），#群主在干嘛 / #群主查看（未带设备名）使用 */
-  async #renderAllStatus(devices, fresh) {
+  /**
+   * 对每台在线设备并发请求一次实时状态（服务端按需上报，设备离线/超时自动回落缓存），
+   * 用返回的设备快照覆盖列表，让"正在使用"等字段反映此刻。
+   * 返回 { live, degraded }：实际拿到实时数据的台数与降级回缓存的台数。
+   */
+  async #refreshOnlineDevices(devices) {
+    const online = devices.filter(d => d.online)
+    if (!online.length) return { live: 0, degraded: 0 }
+    const results = await Promise.allSettled(
+      online.map(d => server.getStatus(d.device_name || d.device_id, true)),
+    )
+    let live = 0
+    let degraded = 0
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !r.value?.device) {
+        degraded++
+        continue
+      }
+      const resp = r.value
+      if (resp.data_source === "live") live++
+      else degraded++
+      const fresh = resp.device
+      const idx = devices.findIndex(x => x.device_id === fresh.device_id)
+      if (idx >= 0) devices[idx] = { ...devices[idx], ...fresh }
+    }
+    return { live, degraded }
+  }
+
+  /** 全部设备状态 + 使用情况（随机背景图），#群主在干嘛（实时）/ #群主查看（快照）使用 */
+  async #renderAllStatus(devices, live, cooldownNote = "", refresh = null) {
     const rows = devices.map(allStatusView)
+    let liveHint = "已实时刷新各设备上报；单台可发 #群主查看 <设备名>"
+    if (live && refresh && refresh.degraded > 0) {
+      liveHint = `已触发实时上报，${refresh.degraded} 台未实时返回（冷却中或响应超时），已展示最近数据；单台可发 #群主查看 <设备名>`
+    }
     const data = {
-      title: fresh ? "全部设备当前状态" : "全部设备状态",
+      title: live ? "全部设备当前状态" : "全部设备状态",
       count: rows.length,
       onlineCount: rows.filter(d => d.online).length,
-      hint: fresh ? "默认触发一次实时上报，约数秒内刷新；单台可发 #群主查看 <设备名>" : "实时数据来自设备上报；单台可发 #群主查看 <设备名>",
+      hint: cooldownNote || (live ? liveHint : "数据来自设备上报快照；实时刷新请发 #群主在干嘛"),
       devices: rows,
       server: pluginFooter(),
       backdrop: getBackdrop(),
@@ -321,18 +375,18 @@ export class Mugshot extends plugin {
     let useFresh = !!fresh
     let cooldownNote = ""
     if (useFresh) {
-      const last = this.freshCooldown.get(this.e.user_id) || 0
+      const last = freshCooldown.get(this.e.user_id) || 0
       const remain = (config.fresh_cooldown_ms || 10000) - (Date.now() - last)
       if (remain > 0) {
         useFresh = false
         cooldownNote = `请求过于频繁（${Math.ceil(remain / 1000)} 秒冷却内），本次展示缓存数据`
       } else {
-        this.freshCooldown.set(this.e.user_id, Date.now())
+        freshCooldown.set(this.e.user_id, Date.now())
         // 冷却表防膨胀：超过 500 个用户时清理过期项
-        if (this.freshCooldown.size > 500) {
+        if (freshCooldown.size > 500) {
           const now = Date.now()
-          for (const [uid, ts] of this.freshCooldown) {
-            if (now - ts > (config.fresh_cooldown_ms || 10000)) this.freshCooldown.delete(uid)
+          for (const [uid, ts] of freshCooldown) {
+            if (now - ts > (config.fresh_cooldown_ms || 10000)) freshCooldown.delete(uid)
           }
         }
       }

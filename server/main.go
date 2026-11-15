@@ -47,8 +47,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("[config] 加载失败: %v", err)
 	}
-	log.Printf("[config] 监听=%s 数据目录=%s 上报限流=%d次/分钟 按需上报冷却=%dms 按需等待=%dms",
-		cfg.GetListen(), cfg.GetDataDir(), cfg.GetReportRatePerMin(), cfg.GetFreshCooldownMs(), cfg.GetFreshTimeoutMs())
+	log.Printf("[config] 监听=%s 数据目录=%s 上报限流=%d次/分钟 按需上报冷却=%dms 按需等待=%dms 数据保留=%d天 离线判定=%ds",
+		cfg.GetListen(), cfg.GetDataDir(), cfg.GetReportRatePerMin(), cfg.GetFreshCooldownMs(), cfg.GetFreshTimeoutMs(),
+		cfg.GetRetentionDays(), cfg.GetOnlineTimeoutSec())
 
 	if *checkUpdate || *doUpdate {
 		runUpdateCLI(cfg, *doUpdate)

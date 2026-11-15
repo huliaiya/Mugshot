@@ -93,6 +93,11 @@ export function maskRequestID(id) {
 
 export function foregroundText(payload) {
   const p = payload || {}
+  // 分屏/小窗等多窗口：多个应用同时可见时全部列出（Android 端按焦点排序、最多 3 个）
+  const multi = Array.isArray(p.foreground_apps)
+    ? p.foreground_apps.map(a => (a && (a.app || a.package)) || "").filter(Boolean)
+    : []
+  if (multi.length > 1) return multi.join(" / ")
   if (p.foreground_app) return p.foreground_app
   if (p.foreground_package) return p.foreground_package
   // 区分“未授权/息屏拿不到”与“确实无应用”，避免笼统的“未知”

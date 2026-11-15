@@ -49,24 +49,40 @@ class AboutFragment : Fragment() {
     }
 
     private fun checkUpdate() {
-        val ctx = requireContext()
+        val ctx = requireContext().applicationContext
+        LogStore.log("update", "手动检查更新（当前版本 ${Updater.currentVersion(ctx)}）")
         lifecycleScope.launch {
             val info = withContext(Dispatchers.IO) { Updater.checkUpdate(Updater.DEFAULT_REPO) }
             val local = Updater.currentVersion(ctx)
             when {
-                info == null -> Toast.makeText(ctx, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
-                !Updater.isNewer(info.tag, local) ->
+                info == null -> {
+                    LogStore.log("update", "更新检查失败（主源与备用源均不可达）")
+                    Toast.makeText(ctx, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                }
+                !Updater.isNewer(info.tag, local) -> {
+                    LogStore.log("update", "已是最新（远端 ${info.tag}，本地 v$local）")
                     Toast.makeText(ctx, getString(R.string.update_latest, local), Toast.LENGTH_SHORT).show()
+                }
                 else -> {
                     val apkUrl = info.apkUrl
                     if (apkUrl == null) {
+                        LogStore.log("update", "发现新版本 ${info.tag}，但 Release 无 APK 附件")
                         Toast.makeText(ctx, getString(R.string.update_no_apk, info.tag), Toast.LENGTH_LONG).show()
                     } else {
+                        LogStore.log("update", "发现新版本 ${info.tag}，开始下载")
                         Toast.makeText(ctx, getString(R.string.update_downloading, info.tag), Toast.LENGTH_SHORT).show()
                         try {
                             val apk = withContext(Dispatchers.IO) { Updater.downloadApk(ctx, apkUrl) }
-                            Updater.installApk(requireActivity(), apk)
+                            val act = activity
+                            if (act == null) {
+                                // 下载耗时较长，用户可能已离开界面：此时不能 requireActivity()（会崩）
+                                LogStore.log("update", "下载完成但界面已离开，未拉起安装器；可再次点击检查更新安装")
+                                Toast.makeText(ctx, R.string.update_left_page, Toast.LENGTH_LONG).show()
+                            } else {
+                                Updater.installApk(act, apk)
+                            }
                         } catch (e: Exception) {
+                            LogStore.log("update", "更新失败：${e.message ?: "未知错误"}")
                             Toast.makeText(ctx, getString(R.string.update_failed, e.message), Toast.LENGTH_LONG).show()
                         }
                     }

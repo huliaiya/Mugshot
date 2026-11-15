@@ -25,6 +25,7 @@ object StatusCollector {
         val screenOn: Boolean,
         val foregroundApp: String,
         val foregroundPackage: String,
+        val foregroundApps: List<Pair<String, String>>, // 分屏/小窗等同时可见的应用，焦点在前，最多 3 个
         val batteryLevel: Int,
         val batteryStatus: String,   // charging | full | discharging | unknown
         val charging: Boolean,
@@ -59,7 +60,9 @@ object StatusCollector {
     fun describe(ctx: Context): String {
         val s = collect(ctx)
         val missing = missingFields(ctx, s)
-        val base = "app=${s.foregroundApp.ifBlank { "-" }} 电量=${if (s.batteryLevel >= 0) "${s.batteryLevel}%" else "-"} " +
+        val app = if (s.foregroundApps.size >= 2) s.foregroundApps.joinToString(" / ") { it.first }
+        else s.foregroundApp
+        val base = "app=${app.ifBlank { "-" }} 电量=${if (s.batteryLevel >= 0) "${s.batteryLevel}%" else "-"} " +
             "屏幕=${if (s.screenOn) "亮" else "灭"} 网络=${s.networkType}"
         return if (missing.isEmpty()) base else "$base | 缺失：${missing.joinToString("；")}"
     }
@@ -71,11 +74,15 @@ object StatusCollector {
         val battery = batteryState(ctx)
         val network = networkState(ctx)
         val fg = foregroundApp(ctx)
+        // 分屏/小窗里失焦的那半屏应用在事件流里是 ACTIVITY_PAUSED（未 STOPPED），单应用逻辑取不到；
+        // 息屏时不采集（暂停状态会被误判为可见），低版本系统见 visibleApps 内的说明。
+        val fgApps = if (screenOn) visibleApps(ctx) else emptyList()
 
         return Snapshot(
             screenOn = screenOn,
             foregroundApp = fg.first,
             foregroundPackage = fg.second,
+            foregroundApps = fgApps,
             batteryLevel = battery.first,
             batteryStatus = battery.second,
             charging = battery.second == "charging" || battery.second == "full",
@@ -157,33 +164,98 @@ object StatusCollector {
     /**
      * 返回 (应用名, 包名)。查最近 5 分钟事件流中最后一次 ACTIVITY_RESUMED。
      * 未授予"使用情况访问权限"时返回空串。
+     * 事件解析需要 API 29+（Event 的 getter 是 29 才加入的，minSdk 26 的
+     * 低版本设备上调用会 NoSuchMethodError），低版本直接走统计兜底。
      */
     @SuppressLint("WrongConstant")
     fun foregroundApp(ctx: Context): Pair<String, String> {
         if (!hasUsageAccess(ctx)) return Pair("", "")
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
-        val events = usm.queryEvents(now - 5 * 60_000L, now)
         var pkg = ""
-        val ev = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(ev)
-            if (ev.eventType == UsageEvents.Event.ACTIVITY_RESUMED && ev.packageName.isNotBlank()) {
-                pkg = ev.packageName
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val events = usm.queryEvents(now - 5 * 60_000L, now)
+            val ev = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                if (ev.eventType == UsageEvents.Event.ACTIVITY_RESUMED && !ev.packageName.isNullOrBlank()) {
+                    pkg = ev.packageName
+                }
             }
         }
-        // 事件流为空（例如息屏/刚解锁）时，退回“最近 5 分钟使用时长最高的应用”作为前台应用
+        // 事件流为空（例如息屏/刚解锁/低版本）时，退回“最近 5 分钟使用时长最高的应用”作为前台应用
         if (pkg.isEmpty()) {
             pkg = topUsagePackage(ctx, now)
         }
         if (pkg.isEmpty()) return Pair("", "")
-        val label = try {
-            val pm = ctx.packageManager
-            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
-        } catch (_: Exception) {
-            ""
+        return Pair(appLabel(ctx, pkg), pkg)
+    }
+
+    /**
+     * 同时可见的应用列表（分屏 / 小窗 / 自由窗口 / 多窗口）。
+     *
+     * 原理：按包名跟踪事件流里每个应用"最新"的活动状态——
+     *  - 最新事件是 ACTIVITY_RESUMED：处于前台（含多窗口双焦点）
+     *  - 最新事件是 ACTIVITY_PAUSED：已暂停但仍未被 ACTIVITY_STOPPED，
+     *    分屏失焦半屏 / 小窗下的底层应用 / 画中画都属于这种状态，视为可见
+     *  - 最新事件是 ACTIVITY_STOPPED / ACTIVITY_DESTROYED：已完全退出屏幕
+     *
+     * 排序按最后一次 ACTIVITY_RESUMED 的时间倒序（焦点应用在前），最多返回 3 个。
+     * 需要 API 29+（事件流里才有 ACTIVITY_STOPPED/DESTROYED，低版本无法区分
+     * "暂停但可见"与"已退后台"）；低版本返回空列表，前台应用仍走单应用逻辑。
+     * 未授予"使用情况访问权限"时同样返回空列表。
+     */
+    @SuppressLint("WrongConstant")
+    fun visibleApps(ctx: Context): List<Pair<String, String>> {
+        if (!hasUsageAccess(ctx)) return emptyList()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val now = System.currentTimeMillis()
+        val events = usm.queryEvents(now - 60 * 60_000L, now)
+        val state = HashMap<String, Int>()   // 包名 -> 最新活动事件类型
+        val resumeTs = HashMap<String, Long>() // 包名 -> 最后一次 ACTIVITY_RESUMED 时间
+        val ev = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(ev)
+            val p = ev.packageName
+            if (p.isNullOrBlank()) continue
+            when (ev.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> {
+                    state[p] = ev.eventType
+                    resumeTs[p] = ev.timeStamp
+                }
+                UsageEvents.Event.ACTIVITY_PAUSED,
+                UsageEvents.Event.ACTIVITY_STOPPED,
+                UsageEvents.Event.ACTIVITY_DESTROYED -> state[p] = ev.eventType
+            }
         }
-        return Pair(label, pkg)
+        return state.entries
+            .filter {
+                it.value == UsageEvents.Event.ACTIVITY_RESUMED || it.value == UsageEvents.Event.ACTIVITY_PAUSED
+            }
+            .sortedByDescending { resumeTs[it.key] ?: 0L }
+            .take(3)
+            .map { Pair(appLabel(ctx, it.key).ifBlank { it.key }, it.key) }
+    }
+
+    /**
+     * 包名 -> 应用名缓存。PM 查询是跨进程调用，每次上报都重复解析同一批包名
+     * 既慢也偶发失败（binder 竞态、应用更新/卸载瞬间 NameNotFoundException、
+     * 部分 ROM 的包可见性实现不稳）；失败时上层回退用包名展示。
+     */
+    private val labelCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun appLabel(ctx: Context, pkg: String): String = try {
+        val label = ctx.packageManager
+            .getApplicationLabel(ctx.packageManager.getApplicationInfo(pkg, 0))
+            .toString()
+            .ifBlank { pkg }
+        if (labelCache.size > 200) labelCache.clear() // 简单防膨胀：全清后下次自动重建
+        labelCache[pkg] = label
+        label
+    } catch (_: Exception) {
+        // 查询失败时优先用上次成功的名称，避免偶发失败导致展示退化成包名
+        labelCache[pkg] ?: ""
     }
 
     /** 最近 5 分钟使用时长最高的应用包名（事件流无结果时的兜底） */
@@ -209,14 +281,26 @@ object StatusCollector {
 
     /**
      * 是否已授予“使用情况访问权限”。
-     * 已授权时可查到任意时长统计；未授权时系统返回空集（即使查询窗口内有使用记录）。
-     * 用 24 小时窗口判断，避免“最近 1 分钟恰好无使用”被误判为未授权。
+     * 用 AppOps 权限位直接判断（权威且确定）：开机后/统计服务刚被清理时
+     * 统计查询会返回空集，用查询结果反推会把已授权误判成未授权，
+     * 导致前台应用字段整体缺失（用户反馈"有时获取不到应用名称"的原因之一）。
      */
     fun hasUsageAccess(ctx: Context): Boolean {
-        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val now = System.currentTimeMillis()
-        val stats = usm.queryAndAggregateUsageStats(now - 24 * 3_600_000L, now)
-        return stats.isNotEmpty()
+        val appOps = ctx.getSystemService(Context.APP_OPS_SERVICE) as? android.app.AppOpsManager
+            ?: return false
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(), ctx.packageName
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(), ctx.packageName
+            )
+        }
+        return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
     fun appVersion(ctx: Context): String = try {
