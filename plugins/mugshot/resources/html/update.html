@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; }
-  .card { padding: 38px; color: #e8ecf4; background: rgba(10,16,30,.5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-  .title { font-size: 28px; font-weight: 700; margin-bottom: 14px; }
-  .msg { background: #172033; border: 1px solid #263150; border-radius: 14px; padding: 18px 22px; font-size: 16px; line-height: 1.8; color: #c8d0e0; word-break: break-all; white-space: pre-wrap; margin-bottom: 16px; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .card { padding: 38px; background: rgba(10,16,30,.66); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .title { font-size: 28px; font-weight: 700; margin-bottom: 14px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .msg { background: rgba(10,16,30,.55); border: 1px solid #263150; border-radius: 14px; padding: 18px 22px; font-size: 16px; line-height: 1.8; color: #d6def0; word-break: break-all; white-space: pre-wrap; margin-bottom: 16px; }
   table.rows { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
   table.rows td { padding: 10px 8px; font-size: 15.5px; border-bottom: 1px solid #1f2a44; }
   table.rows tr:last-child td { border-bottom: none; }
-  table.rows .k { color: #8b93a7; width: 150px; }
-  table.rows .v { color: #e8ecf4; font-weight: 600; }
+  table.rows .k { color: {{ backdrop.accents[3] }}; width: 150px; }
+  table.rows .v { color: {{ backdrop.accents[4] }}; font-weight: 700; }
   table.rows .v.warn { color: #ffb74d; }
   .tag { display: inline-block; font-size: 14px; padding: 3px 12px; border-radius: 999px; background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); font-weight: 600; margin-bottom: 16px; }
-  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+  .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
 </style>
 </head>
 <body>
