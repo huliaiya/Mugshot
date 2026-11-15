@@ -209,6 +209,9 @@ type ui struct {
 	ctlResult  *widget.Label
 	verLabel   *widget.Label
 	logView    *widget.Entry
+	logScroll  *container.Scroll
+	logMu      sync.Mutex
+	logText    string
 	logHint    *widget.Label
 	logModeBtn *widget.Button
 	tabs       *container.AppTabs
@@ -726,12 +729,13 @@ func (u *ui) build() fyne.CanvasObject {
 	u.logView.Wrapping = fyne.TextWrapBreak
 	u.logView.TextStyle = fyne.TextStyle{Monospace: true}
 	u.logView.SetText("切换到本页时自动加载")
+	u.logScroll = newDragScroll(u.logView)
 	logPage := container.NewBorder(
 		container.NewVBox(
 			widget.NewCard("运行日志", "", container.NewVBox(u.logHint, container.NewHBox(u.logModeBtn, logRefresh))),
 		),
 		nil, nil, nil,
-		newDragScroll(u.logView),
+		u.logScroll,
 	)
 
 	// ---- 接入信息页 ----
@@ -1141,6 +1145,7 @@ func (u *ui) toggleLogMode() {
 		u.logModeBtn.SetText("查看最近 24 小时")
 		u.logHint.SetText("只看本次运行：显示服务最近一次启动以来的日志；本页可见时每 5 秒自动刷新最新内容。")
 	}
+	u.setLogText("")
 	u.refreshRunLog()
 }
 
@@ -1152,21 +1157,72 @@ func (u *ui) refreshRunLog() {
 		return
 	}
 	mode := u.logMode
-	u.logView.SetText("正在加载日志……")
+	// 仅首次加载/切换视图时显示占位；自动刷新不再先把内容清空，
+	// 否则每 5 秒闪一次“正在加载日志……”。
+	if u.loadLogText() == "" {
+		u.logView.SetText("正在加载日志……")
+	}
 	go func() {
 		defer u.logBusy.Store(false)
 		text, err := serverLogs(mode)
 		fyne.Do(func() {
 			if err != nil {
-				u.logView.SetText("读取日志失败：" + err.Error() +
-					"\n\n提示：把当前用户加入日志组后无需授权即可查看：\n  sudo usermod -aG systemd-journal $USER\n然后注销重新登录。")
+				text = "读取日志失败：" + err.Error() +
+					"\n\n提示：把当前用户加入日志组后无需授权即可查看：\n  sudo usermod -aG systemd-journal $USER\n然后注销重新登录。"
 			} else if strings.TrimSpace(text) == "" {
-				u.logView.SetText("暂无日志")
-			} else {
-				u.logView.SetText(text)
+				text = "暂无日志"
 			}
+			u.applyRunLog(text)
 		})
 	}()
+}
+
+func (u *ui) loadLogText() string {
+	u.logMu.Lock()
+	defer u.logMu.Unlock()
+	return u.logText
+}
+
+func (u *ui) setLogText(t string) {
+	u.logMu.Lock()
+	u.logText = t
+	u.logMu.Unlock()
+}
+
+// applyRunLog 增量应用日志文本：内容未变化时直接跳过，避免无谓重绘；
+// 内容变化时保持滚动位置，原本停在底部则跟随到最新一行。
+func (u *ui) applyRunLog(text string) {
+	if text == u.loadLogText() {
+		return
+	}
+	s := u.logScroll
+	atBottom := true
+	prev := fyne.NewPos(0, 0)
+	if s != nil {
+		prev = s.Offset
+		maxY := s.Content.MinSize().Height - s.Size().Height
+		if maxY < 0 {
+			maxY = 0
+		}
+		atBottom = maxY-prev.Y <= 8
+	}
+	u.setLogText(text)
+	u.logView.SetText(text)
+	if s == nil {
+		return
+	}
+	if atBottom {
+		s.ScrollToBottom()
+		return
+	}
+	maxY := s.Content.MinSize().Height - s.Size().Height
+	if maxY < 0 {
+		maxY = 0
+	}
+	if prev.Y > maxY {
+		prev.Y = maxY
+	}
+	s.Offset = prev
 }
 
 // serviceStartSince 返回服务最近一次启动的时间字符串（供 journalctl --since）。
