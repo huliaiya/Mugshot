@@ -103,3 +103,70 @@ export async function silentCheck() {
     logger.debug(`[Mugshot] 更新检查失败: ${err.message}`)
   }
 }
+
+// ---------- 宿主更新机制（与 huli-plugins 同款） ----------
+// 优先复用宿主内置更新插件 other/update.js（TRSS/Miao 布局二选一）：
+// 它按 plugins/<安装目录名>/.git 定位插件仓库，自动拉取源码、按需安装依赖并按宿主逻辑重启；
+// 全程只更新插件本体，与 Mugshot 服务端无关。不可用时由调用方回退到上方直接拉取方案。
+
+const HOST_UPDATE_CANDIDATES = [
+  "../../other/update.js", // TRSS-Yunzai 布局：插件装在 Yunzai/plugins/<name> 时 ../../ 即 plugins/
+  "../../../other/update.js", // Miao-Yunzai / Yunzai v3 布局：更新插件在 Yunzai 根目录
+]
+
+/** 动态加载宿主更新插件，避免静态 import 因路径不成立导致整个模块加载失败 */
+async function loadHostUpdate() {
+  for (const spec of HOST_UPDATE_CANDIDATES) {
+    try {
+      const mod = await import(spec)
+      if (mod?.update) return mod.update
+    } catch {
+      // 布局不匹配则尝试下一个候选
+    }
+  }
+  return null
+}
+
+/**
+ * 构造宿主更新插件所需的事件对象。
+ * 载入器用 Object.defineProperty 定义 isMaster 等属性（不可枚举），
+ * 直接 { ...e } 会把它们丢掉；用原型继承保留原事件全部属性，再覆盖 msg / logFnc。
+ */
+function createUpdaterEvent(e, msg) {
+  const evt = Object.create(e ?? null)
+  evt.msg = msg
+  evt.logFnc = "[Mugshot][更新]"
+  return evt
+}
+
+/** 插件安装目录名（宿主 getPlugin 按目录名定位仓库，目录名与仓库默认名不同也能更新） */
+function installDirName() {
+  return path.basename(pluginDir)
+}
+
+/**
+ * 用宿主更新机制更新插件本体（自动处理依赖与重启）。
+ * 成功返回 true（宿主已自行回复进度与结果）；宿主更新插件不可用返回 null（调用方回退）。
+ */
+export async function updateViaHost(e) {
+  const HostUpdate = await loadHostUpdate()
+  if (!HostUpdate) return null
+  const name = installDirName()
+  const updater = new HostUpdate(e)
+  updater.e = createUpdaterEvent(e, `#更新${name}`)
+  if ((await updater.getPlugin(name)) === false) return null
+  await updater.update()
+  return true
+}
+
+/** 用宿主更新机制读取插件最近提交；宿主更新插件或 getLog 不可用返回 null */
+export async function updateLogViaHost(e) {
+  const HostUpdate = await loadHostUpdate()
+  if (!HostUpdate) return null
+  const name = installDirName()
+  const updater = new HostUpdate(e)
+  updater.e = createUpdaterEvent(e, `#更新日志${name}`)
+  if ((await updater.getPlugin(name)) === false) return null
+  if (typeof updater.getLog !== "function") return null
+  return await updater.getLog(name)
+}
