@@ -13,8 +13,27 @@ class MugshotApp : Application() {
         super.onCreate()
         instance = this
         LogStore.init(this)
-        LogStore.log("app", "应用启动")
+        installCrashLogger()
+        LogStore.log(
+            "app", "应用启动 v${StatusCollector.appVersion(this)} " +
+                "Android ${android.os.Build.VERSION.RELEASE}（SDK ${android.os.Build.VERSION.SDK_INT}）" +
+                " ${android.os.Build.MODEL ?: ""}"
+        )
         applyTheme()
+    }
+
+    /** 未捕获异常先落运行日志再走系统崩溃流程：闪退后可在日志页回溯现场 */
+    private fun installCrashLogger() {
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                LogStore.log("crash", "未捕获异常（线程 ${t.name}）：${e.javaClass.name}: ${e.message ?: "无消息"}")
+                android.util.Log.getStackTraceString(e).lineSequence().take(30)
+                    .forEach { if (it.isNotBlank()) LogStore.log("crash", it) }
+            } catch (_: Exception) {
+            }
+            prev?.uncaughtException(t, e)
+        }
     }
 
     /** 按用户设置应用主题（跟随系统 / 浅色 / 深色）；变更后 AppCompat 会自动重建界面 */

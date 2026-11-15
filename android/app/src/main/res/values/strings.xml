@@ -61,6 +61,7 @@
     <string name="update_latest">已是最新版本 v%1$s</string>
     <string name="update_no_apk">发现新版本 %1$s，但 Release 中没有 APK 附件</string>
     <string name="update_downloading">发现新版本 %1$s，正在下载…</string>
+    <string name="update_left_page">新版本已下载完成，但界面已退出；再次点击「检查更新」即可安装</string>
     <string name="update_failed">更新失败：%1$s</string>
 
     <!-- 底部导航 -->

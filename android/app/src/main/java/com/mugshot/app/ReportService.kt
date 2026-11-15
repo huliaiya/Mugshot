@@ -36,6 +36,10 @@ class ReportService : Service(), WsClient.Listener {
         var isRunning = false
             private set
 
+        // 当前活跃的服务实例：供 companion 直接操作服务内的 WS 客户端
+        @Volatile
+        private var activeService: ReportService? = null
+
         /** 服务内 WS 客户端当前连接状态（供首页直接读取） */
         @Volatile
         var currentState: String = WsClient.STATE_OFFLINE
@@ -74,6 +78,11 @@ class ReportService : Service(), WsClient.Listener {
                 LogStore.log("service", "停止上报服务失败：" + (e.message ?: "未知错误"))
             }
         }
+
+        /** App 回到前台时调用：服务 WS 若在退避等待则跳过剩余等待立即重连 */
+        fun reconnectNow() {
+            activeService?.wsClient?.reconnectNow()
+        }
     }
 
     private var wsClient: WsClient? = null
@@ -83,20 +92,24 @@ class ReportService : Service(), WsClient.Listener {
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        activeService = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            LogStore.log("service", "收到停止指令")
+            LogStore.log("service", "收到停止指令（startId=$startId）")
             stopSelf()
             return START_NOT_STICKY
         }
         // null intent = 系统重启服务（START_STICKY），或首次启动：都直接初始化
         if (!Prefs.consent) {
+            LogStore.log("service", "未同意隐私政策，不启动上报")
             stopSelf()
             return START_NOT_STICKY
         }
-        LogStore.markRestart("启动")
+        LogStore.markRestart(
+            if (intent == null) "启动（系统重建，START_STICKY）" else "启动（第 $startId 次）"
+        )
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_connecting)))
 
         wsClient?.stop()
@@ -109,9 +122,10 @@ class ReportService : Service(), WsClient.Listener {
     }
 
     override fun onDestroy() {
-        LogStore.log("service", "上报服务停止")
+        LogStore.log("service", "上报服务停止（isRunning=${isRunning}）")
         wsClient?.stop()
         wsClient = null
+        if (activeService === this) activeService = null
         isRunning = false
         currentState = WsClient.STATE_OFFLINE
         for (l in listeners) l.onStateChanged(WsClient.STATE_OFFLINE)
@@ -204,5 +218,6 @@ class ReportService : Service(), WsClient.Listener {
             ExistingPeriodicWorkPolicy.KEEP,
             request,
         )
+        LogStore.log("service", "HTTP 兜底上报已注册（每 15 分钟，网络可用时执行）")
     }
 }

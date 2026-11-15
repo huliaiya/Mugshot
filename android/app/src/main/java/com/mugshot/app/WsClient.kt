@@ -20,7 +20,8 @@ import java.util.concurrent.TimeUnit
  *  2. 服务端回 register_ok 后进入正常收发
  *  3. 每 25s 发 heartbeat；每 reportIntervalSec 发定时 report
  *  4. 收到 request_report（带 request_id）立即采集上报，request_id 原样带回
- *  5. 断线指数退避重连（1s 起，最长 5 分钟）；网络恢复/切换时立即重连
+ *  5. 断线指数退避重连（1s 起，最长 1 分钟）；网络恢复/切换时立即重连；
+ *     App 回到前台时跳过剩余退避立即重连（后台被 Doze/网络切换断开后，回前台秒连）
  */
 class WsClient(
     private val context: android.content.Context,
@@ -36,7 +37,7 @@ class WsClient(
         const val STATE_ONLINE = "online"
         const val STATE_OFFLINE = "offline"
         const val STATE_ERROR = "error"
-        private val BACKOFF = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000, 120_000, 300_000)
+        private val BACKOFF = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000)
         private const val HEARTBEAT_MS = 25_000L
         private const val REQUEST_DEDUP_MS = 2_000L
     }
@@ -56,6 +57,9 @@ class WsClient(
     private var heartbeatTask: Runnable? = null
     private var reportTask: Runnable? = null
     private var lastRequestTs = 0L
+    private var sessionStartTs = 0L   // 本次连接建立时间（心跳行计算在线时长）
+    private var heartbeatSeq = 0      // 应用层心跳序号
+    private var reportSeq = 0         // 本次连接的上报序号
 
     // 网络状态监听：网络恢复/切换时立即重连，不必等指数退避计时
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -69,6 +73,10 @@ class WsClient(
             listener?.onStateChanged(STATE_ERROR)
             return
         }
+        LogStore.log(
+            "ws", "启动连接：服务器=${hostOf()} 设备=${Prefs.deviceName} " +
+                "上报间隔=${Prefs.reportIntervalSec}s"
+        )
         closed = false
         netSeenOnce = false
         connect()
@@ -104,9 +112,26 @@ class WsClient(
         return "$url/ws/device?token=" + java.net.URLEncoder.encode(Prefs.deviceToken, "UTF-8")
     }
 
+    /** 日志用的脱敏 URL：Token 不落日志，避免截图分享时泄露 */
+    private fun maskedUrl(): String {
+        val raw = Prefs.serverUrl.trim().trimEnd('/')
+        val host = raw
+            .removePrefix("https://").removePrefix("http://")
+            .removePrefix("wss://").removePrefix("ws://")
+        val scheme = if (raw.startsWith("http://") || raw.startsWith("ws://")) "ws" else "wss"
+        return "$scheme://$host/ws/device?token=***"
+    }
+
+    private fun hostOf(): String {
+        val raw = Prefs.serverUrl.trim().trimEnd('/')
+        return raw.removePrefix("https://").removePrefix("http://")
+            .removePrefix("wss://").removePrefix("ws://")
+    }
+
     private fun connect() {
         if (closed) return
         setState(STATE_CONNECTING)
+        LogStore.log("ws", "正在连接 ${maskedUrl()}（连接超时 10s）")
         val req = Request.Builder().url(wsUrl()).build()
         ws = client.newWebSocket(req, deviceListener)
     }
@@ -122,7 +147,10 @@ class WsClient(
                 put("app_version", StatusCollector.appVersion(context))
             }
             webSocket.send(register.toString())
-            LogStore.log("ws", "已连接 " + wsUrl())
+            sessionStartTs = System.currentTimeMillis()
+            heartbeatSeq = 0
+            reportSeq = 0
+            LogStore.log("ws", "已连接 ${maskedUrl()}（HTTP ${response.code}，已发送注册 device_id=${Prefs.deviceId.take(8)}****）")
             backoffIdx = 0
             startTimers(webSocket)
             setState(STATE_ONLINE)
@@ -133,21 +161,32 @@ class WsClient(
             try {
                 val msg = JSONObject(text)
                 when (msg.optString("type")) {
-                    "register_ok" -> setState(STATE_ONLINE)
+                    "register_ok" -> {
+                        LogStore.log("ws", "注册成功，设备已上线")
+                        setState(STATE_ONLINE)
+                    }
                     "request_report" -> {
                         val rid = msg.optString("request_id")
                         LogStore.log("ws", "收到服务器主动采集请求（request_id=" + (if (rid.isEmpty()) "无" else "已脱敏") + "），立即采集上报")
                         handleRequestReport(webSocket, msg)
                     }
+                    else -> LogStore.log("ws", "忽略服务端消息 type=${msg.optString("type")}")
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                LogStore.log("ws", "无法解析服务端消息（${text.length} 字节）：${e.message ?: "格式错误"}")
             }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             if (webSocket !== ws) return
             cancelTimers()
-            LogStore.log("ws", "连接失败：" + (t.message ?: "未知错误"))
+            val detail = buildString {
+                append(t.javaClass.simpleName.ifBlank { "Throwable" })
+                append("：")
+                append(t.message ?: "未知错误")
+                response?.let { append("（HTTP ").append(it.code).append("）") }
+            }
+            LogStore.log("ws", "连接失败：$detail")
             setState(STATE_ERROR)
             scheduleReconnect()
         }
@@ -168,6 +207,9 @@ class WsClient(
         val now = System.currentTimeMillis()
         val dedup = now - lastRequestTs < REQUEST_DEDUP_MS
         lastRequestTs = now
+        if (dedup) {
+            LogStore.log("ws", "2 秒内重复采集请求，复用本次采集结果（省电）")
+        }
         if (!StatusCollector.hasUsageAccess(context)) {
             LogStore.log("ws", "提示：未授予「使用情况访问权限」，前台应用字段将为空；可到 设置→使用情况访问 授权")
         }
@@ -177,10 +219,19 @@ class WsClient(
     }
 
     private fun sendReport(webSocket: WebSocket, requestId: String?, s: StatusCollector.Snapshot) {
+        val t0 = System.currentTimeMillis()
         val payload = JSONObject().apply {
             put("screen_on", s.screenOn)
             put("foreground_app", s.foregroundApp)
             put("foreground_package", s.foregroundPackage)
+            // 分屏/小窗等多窗口场景：2 个以上应用同时可见时一并列出
+            if (s.foregroundApps.size >= 2) {
+                val arr = org.json.JSONArray()
+                for ((label, pkg) in s.foregroundApps) {
+                    arr.put(org.json.JSONObject().put("app", label).put("package", pkg))
+                }
+                put("foreground_apps", arr)
+            }
             put("battery_level", s.batteryLevel)
             put("battery_status", s.batteryStatus)
             put("charging", s.charging)
@@ -196,17 +247,29 @@ class WsClient(
             put("timestamp", System.currentTimeMillis())
             put("payload", payload)
         }
-        webSocket.send(report.toString())
+        val body = report.toString()
+        webSocket.send(body)
         Prefs.lastReportTs = System.currentTimeMillis()
-        val kind = if (!requestId.isNullOrEmpty()) "响应服务器主动要求" else "定时上报"
-        LogStore.log("ws", kind + "已上报：" + StatusCollector.describe(context))
+        reportSeq++
+        val collectMs = System.currentTimeMillis() - t0
+        val kind = if (!requestId.isNullOrEmpty()) "按需上报(响应服务器要求)" else "定时上报"
+        LogStore.log(
+            "ws", "$kind #$reportSeq ${body.length}B 采集+发送 ${collectMs}ms：" +
+                StatusCollector.describe(context)
+        )
     }
 
     private fun startTimers(webSocket: WebSocket) {
         cancelTimers()
         heartbeatTask = object : Runnable {
             override fun run() {
+                heartbeatSeq++
                 webSocket.send(JSONObject().put("type", "heartbeat").toString())
+                // 每 4 次心跳记一行（每 100 秒）：证明链路存活又不至于刷屏
+                if (heartbeatSeq % 4 == 0) {
+                    val up = (System.currentTimeMillis() - sessionStartTs) / 1000
+                    LogStore.log("ws", "心跳 #${heartbeatSeq}（连续在线 ${up / 60} 分 ${up % 60} 秒）")
+                }
                 main.postDelayed(this, HEARTBEAT_MS)
             }
         }
@@ -219,6 +282,7 @@ class WsClient(
             }
         }
         main.postDelayed(reportTask!!, 1_000L) // register_ok 后尽快发一次首报
+        LogStore.log("ws", "定时器已启动：心跳每 ${HEARTBEAT_MS / 1000}s，首报 1s 后")
     }
 
     private fun cancelTimers() {
@@ -228,12 +292,23 @@ class WsClient(
         reportTask = null
     }
 
+    /**
+     * 立即尝试重连（App 回到前台时调用）：
+     * 已在线/正在连接则不动；处于断开或退避等待期则取消剩余等待立刻重连。
+     */
+    fun reconnectNow() {
+        if (closed || state == STATE_ONLINE || state == STATE_CONNECTING) return
+        LogStore.log("ws", "应用回到前台，跳过剩余退避立即重连")
+        forceReconnect()
+    }
+
     private fun scheduleReconnect() {
         if (closed) return
         cancelReconnect()
         val delay = BACKOFF[backoffIdx.coerceAtMost(BACKOFF.size - 1)]
+        val attempt = backoffIdx + 1
         backoffIdx = (backoffIdx + 1).coerceAtMost(BACKOFF.size - 1)
-        LogStore.log("ws", "${delay / 1000} 秒后重连")
+        LogStore.log("ws", "第 $attempt 次重连将在 ${delay / 1000} 秒后（最长退避 ${BACKOFF.last() / 1000}s）")
         val r = Runnable {
             reconnectRunnable = null
             connect()

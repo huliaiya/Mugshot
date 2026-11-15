@@ -23,6 +23,14 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 put("screen_on", snapshot.screenOn)
                 put("foreground_app", snapshot.foregroundApp)
                 put("foreground_package", snapshot.foregroundPackage)
+                // 分屏/小窗等多窗口场景：2 个以上应用同时可见时一并列出
+                if (snapshot.foregroundApps.size >= 2) {
+                    val arr = org.json.JSONArray()
+                    for ((label, pkg) in snapshot.foregroundApps) {
+                        arr.put(org.json.JSONObject().put("app", label).put("package", pkg))
+                    }
+                    put("foreground_apps", arr)
+                }
                 put("battery_level", snapshot.batteryLevel)
                 put("battery_status", snapshot.batteryStatus)
                 put("charging", snapshot.charging)

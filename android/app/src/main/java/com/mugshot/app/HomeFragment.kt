@@ -72,6 +72,8 @@ class HomeFragment : Fragment(), WsClient.Listener {
             probeWs?.stop()
             probeWs = null
             ReportService.addListener(this)
+            // 回前台：服务 WS 若在退避等待则立即重连，避免"已断开正在重连"长时间挂着
+            ReportService.reconnectNow()
             lastState = ReportService.currentState
             renderState(lastState, getString(R.string.home_detail_service))
         } else if (Prefs.isConfigured()) {

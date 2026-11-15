@@ -90,11 +90,25 @@ class SettingsFragment : Fragment() {
             Toast.makeText(ctx, R.string.toast_bad_token, Toast.LENGTH_SHORT).show()
             return
         }
+        val oldUrl = Prefs.serverUrl
+        val oldToken = Prefs.deviceToken
+        val oldName = Prefs.deviceName
+        val oldInterval = Prefs.reportIntervalSec
         Prefs.serverUrl = url
         Prefs.deviceToken = token
         Prefs.deviceName = name
         Prefs.reportIntervalSec = 30 + sbInterval.progress * 30
-        LogStore.log("config", "配置已保存 url=$url interval=${Prefs.reportIntervalSec}s")
+        // 变更明细（Token 只记录是否更换，不落日志值）
+        LogStore.log(
+            "config",
+            "配置已保存" +
+                (if (oldUrl != url) " 服务器: $oldUrl -> $url" else "") +
+                (if (oldToken != token) " Token: 已更换" else "") +
+                (if (oldName != name) " 设备名: $oldName -> $name" else "") +
+                (if (oldInterval != Prefs.reportIntervalSec) " 上报间隔: ${oldInterval}s -> ${Prefs.reportIntervalSec}s" else "") +
+                (if (oldUrl == url && oldToken == token && oldName == name && oldInterval == Prefs.reportIntervalSec)
+                    "（内容无变化）" else "")
+        )
 
         // 重启服务应用新配置
         if (Prefs.consent) {
