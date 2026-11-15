@@ -26,11 +26,12 @@
   .row .v { color: #eef3fb; font-weight: 600; }
   .row .v.app { background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; word-break: break-all; font-weight: 700; }
   .battery { display: flex; align-items: center; gap: 8px; }
-  .battery .bar { flex: 1; height: 9px; background: rgba(255,255,255,.14); border-radius: 999px; overflow: hidden; }
-  .battery .fill { height: 100%; border-radius: 999px; }
-  .fill.hi { background: linear-gradient(90deg,#3dd598,#6ee7b7); }
-  .fill.mid { background: linear-gradient(90deg,#ffb74d,#ffd54f); }
-  .fill.lo { background: linear-gradient(90deg,#ff6363,#ff8a8a); }
+  .battery .bar { flex: 1; height: 11px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.18); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); min-width: 120px; }
+  .battery .fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .fill.hi { background: linear-gradient(90deg,#22d3ee,#3dd598,#a3e635); box-shadow: 0 0 8px rgba(61,213,152,.6); }
+  .fill.mid { background: linear-gradient(90deg,#fbbf24,#fb923c,#f472b6); box-shadow: 0 0 8px rgba(251,146,60,.6); }
+  .fill.lo { background: linear-gradient(90deg,#f43f5e,#fb7185,#fb923c); box-shadow: 0 0 8px rgba(244,63,94,.6); }
+  .fill.unknown { background: repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 10px, rgba(255,255,255,.06) 10px 20px); }
   .meta { font-size: 13px; color: #8b93a7; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; margin-top: 4px; }
 </style>
 </head>

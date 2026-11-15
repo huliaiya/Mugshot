@@ -55,8 +55,17 @@ func payloadSummary(p *ReportPayload) string {
 		}
 		apps = strings.Join(names, "/")
 	}
-	return fmt.Sprintf("app=%q multi=%d screen=%v battery=%d%% %s net=%s ver=%s",
-		apps, len(p.ForegroundApps), p.ScreenOn, p.BatteryLevel, p.BatteryStatus, p.NetworkType, p.AppVersion)
+	return fmt.Sprintf("app=%q multi=%d usage=%d screen=%v battery=%d%% %s net=%s ver=%s",
+		apps, len(p.ForegroundApps), len(p.Usage24h), p.ScreenOn, p.BatteryLevel, p.BatteryStatus, p.NetworkType, p.AppVersion)
+}
+
+// UsageApp is one entry of usage_24h: an app's foreground time over the
+// trailing 24h window, in minutes. Stored with the device's latest report so
+// the plugin can render usage stats without waking the phone.
+type UsageApp struct {
+	Pkg string `json:"pkg"`
+	App string `json:"app"`
+	Min int64  `json:"min"`
 }
 
 // ForegroundAppInfo is one entry of foreground_apps: an app visible on screen
@@ -73,6 +82,7 @@ type ReportPayload struct {
 	ForegroundPackage string              `json:"foreground_package,omitempty"`
 	ForegroundApp     string              `json:"foreground_app,omitempty"`
 	ForegroundApps    []ForegroundAppInfo `json:"foreground_apps,omitempty"` // multi-window visible apps, focused first
+	Usage24h          []UsageApp          `json:"usage_24h,omitempty"`       // per-app foreground time, trailing 24h, top 8
 	ScreenOn          bool                `json:"screen_on"`
 	BatteryLevel      int    `json:"battery_level"`  // 0-100, -1 unknown
 	BatteryStatus     string `json:"battery_status"` // charging|full|discharging|unknown

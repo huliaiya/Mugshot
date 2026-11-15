@@ -26,11 +26,12 @@
   .cell:nth-child(2) .value { color: {{ backdrop.accents[2] }}; }
   .cell:nth-child(4) .value { color: {{ backdrop.accents[4] }}; }
   .battery-row { display: flex; align-items: center; gap: 14px; }
-  .battery-bar { flex: 1; height: 12px; background: #0d1320; border-radius: 999px; overflow: hidden; border: 1px solid #2a3550; }
-  .battery-fill { height: 100%; border-radius: 999px; }
-  .battery-fill.hi { background: linear-gradient(90deg, #3dd598, #6ee7b7); }
-  .battery-fill.mid { background: linear-gradient(90deg, #ffb74d, #ffd54f); }
-  .battery-fill.lo { background: linear-gradient(90deg, #ff6363, #ff8a8a); }
+  .battery-bar { flex: 1; height: 14px; background: rgba(10,16,30,.65); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+  .battery-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .battery-fill.hi { background: linear-gradient(90deg, #22d3ee, #3dd598, #a3e635); box-shadow: 0 0 10px rgba(61,213,152,.6); }
+  .battery-fill.mid { background: linear-gradient(90deg, #fbbf24, #fb923c, #f472b6); box-shadow: 0 0 10px rgba(251,146,60,.6); }
+  .battery-fill.lo { background: linear-gradient(90deg, #f43f5e, #fb7185, #fb923c); box-shadow: 0 0 10px rgba(244,63,94,.6); }
+  .battery-fill.unknown { background: repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 10px, rgba(255,255,255,.06) 10px 20px); }
   .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
 </style>
 </head>
@@ -64,7 +65,7 @@
       <div class="label">电池</div>
       <div class="battery-row">
         <div class="battery-bar"><div class="battery-fill {{ battery_class }}" style="width: {{ battery_width }}%;"></div></div>
-        <div class="value">{{ battery }}%</div>
+        <div class="value">{{ battery_text }}</div>
       </div>
     </div>
     <div class="cell">

@@ -232,6 +232,14 @@ class WsClient(
                 }
                 put("foreground_apps", arr)
             }
+            // 最近 24 小时使用时长（top 8）：由服务端随设备快照存储，插件 #群主用过什么 展示
+            if (s.usage24h.isNotEmpty()) {
+                val usageArr = org.json.JSONArray()
+                for (u in s.usage24h) {
+                    usageArr.put(org.json.JSONObject().put("pkg", u.pkg).put("app", u.app).put("min", u.min))
+                }
+                put("usage_24h", usageArr)
+            }
             put("battery_level", s.batteryLevel)
             put("battery_status", s.batteryStatus)
             put("charging", s.charging)

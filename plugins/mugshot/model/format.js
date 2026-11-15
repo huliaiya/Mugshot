@@ -67,7 +67,7 @@ export function batteryLevel(payload) {
 }
 
 export function batteryClass(level) {
-  if (level === null) return "mid"
+  if (level === null) return "unknown"
   if (level <= 20) return "lo"
   if (level <= 50) return "mid"
   return "hi"
@@ -136,8 +136,9 @@ export function basicView(p) {
     screen: screenText(payload.screen_on),
     network: networkText(payload),
     battery: level === null ? "?" : level,
+    battery_text: level === null ? "无数据（本机读不到电量）" : `${level}%`,
     battery_class: batteryClass(level),
-    battery_width: level === null ? 0 : Math.min(100, Math.max(4, level)),
+    battery_width: level === null ? 100 : Math.min(100, Math.max(4, level)),
     charging: batteryStatusText(payload),
   }
 }
@@ -182,12 +183,22 @@ export function allStatusView(d) {
     appText: foregroundText(p),
     batteryText: level === null ? "无数据（本机读不到电量）" : `${level}%`,
     battery_class: batteryClass(level),
-    battery_width: level === null ? 0 : Math.min(100, Math.max(4, level)),
+    battery_width: level === null ? 100 : Math.min(100, Math.max(4, level)),
     screenText: p.screen_on === undefined ? "无数据" : screenText(p.screen_on),
     networkText: p.network_type ? networkText(p) : "无数据",
     chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
     report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
   }
+}
+
+/** 分钟数 -> "x小时y分" / "y分钟" */
+export function formatMinutes(min) {
+  const m = Math.max(0, Math.round(Number(min) || 0))
+  if (m < 1) return "不足1分钟"
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (!h) return `${r}分钟`
+  return r ? `${h}小时${r}分` : `${h}小时`
 }
 
 export function pluginFooter() {

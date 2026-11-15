@@ -19,7 +19,9 @@ import {
   deviceView,
   allStatusView,
   formatTime,
+  formatShortTime,
   formatAgo,
+  formatMinutes,
   maskDeviceID,
   pluginFooter,
 } from "./model/format.js"
@@ -57,6 +59,7 @@ export class Mugshot extends plugin {
         { reg: "^#群主在干嘛\\s*(.*)$", fnc: "allDoing", permission: "all" },
         { reg: "^#群主查看\\s*(.*)$", fnc: "viewDevice", permission: "all" },
         { reg: "^#群主详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
+        { reg: "^#群主用过什么$", fnc: "usageStats", permission: "all" },
         { reg: "^#群主状态$", fnc: "serverStatus", permission: "all" },
         { reg: "^#群主更新$", fnc: "pluginUpdate", permission: "master" },
         { reg: "^#群主更新日志$", fnc: "updateLog" },
@@ -100,6 +103,7 @@ export class Mugshot extends plugin {
             { cmd: "#群主在干嘛", desc: "全部设备此刻在干嘛：实时刷新每台设备的状态、正在使用的软件等" },
             { cmd: "#群主查看 [设备名]", desc: "带设备名看单台实时状态；不带设备名看全部设备快照" },
             { cmd: "#群主详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
+            { cmd: "#群主用过什么", desc: "最近 24 小时各设备用过的软件及时长（按使用时长排序）" },
           ],
         },
         {
@@ -166,6 +170,59 @@ export class Mugshot extends plugin {
     const name = (this.e.msg.replace(/^#群主详情/, "") || "").trim()
     if (!name) return this.#renderAllDevices({ live: !!config.detail_fresh })
     return this.#queryAndRender(name, !!config.detail_fresh, "detail", "设备详情")
+  }
+
+  /**
+   * #群主用过什么：每台设备最近 24 小时的软件使用时长。
+   * 数据由 App 在每次上报时携带（usage_24h，前台时长 top 8，30 秒缓存），
+   * 服务端随设备快照保存，这里直接读最新快照，不额外唤醒设备。
+   */
+  async usageStats() {
+    let resp
+    try {
+      resp = await server.getDevices()
+    } catch (err) {
+      return this.#renderError("设备列表获取失败", err.message)
+    }
+    const devices = resp.devices || []
+    if (!devices.length) {
+      return this.#renderError("暂无设备", "还没有任何 Android 设备接入，请先安装并配置 Mugshot App。")
+    }
+    const rows = devices.map(d => {
+      const payload = d?.last_report?.payload || {}
+      const usage = Array.isArray(payload.usage_24h) ? payload.usage_24h : []
+      const total = usage.reduce((sum, u) => sum + (Number(u?.min) || 0), 0)
+      const max = usage.reduce((m, u) => Math.max(m, Number(u?.min) || 0), 1)
+      return {
+        device_name: d.device_name || d.device_id,
+        device_model: d.model || "未知型号",
+        online: !!d.online,
+        report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
+        has_data: usage.length > 0,
+        total_text: formatMinutes(total),
+        apps: usage.map(u => ({
+          app: u.app || u.pkg || "未知应用",
+          time: formatMinutes(u.min),
+          width: Math.min(100, Math.max(6, Math.round(((Number(u.min) || 0) / max) * 100))),
+        })),
+      }
+    })
+    const data = {
+      title: "24 小时使用统计",
+      count: rows.length,
+      hint: "统计窗口为最近 24 小时，数据来自设备最近一次上报；需新版 App 并授予「使用情况访问权限」",
+      devices: rows,
+      server: pluginFooter(),
+      time: formatShortTime(Date.now()),
+      backdrop: getBackdrop(),
+    }
+    const img = await renderCard(this.e, "usage", data)
+    return this.#send(img, null, [
+      [
+        "使用统计渲染失败",
+        rows.map(d => `${d.device_name}：` + (d.has_data ? d.apps.map(a => `${a.app} ${a.time}`).join("、") : "暂无记录")).join("\n"),
+      ],
+    ])
   }
 
   /** #群主状态 */
@@ -396,7 +453,6 @@ export class Mugshot extends plugin {
 
     const data = statusView(resp)
     data.title = title
-    data.class = ""
     if (cooldownNote && !data.note) data.note = cooldownNote
     data.server = pluginFooter()
     data.backdrop = getBackdrop()
@@ -421,7 +477,7 @@ export class Mugshot extends plugin {
         [
           `设备：${data.device_name}（${data.online ? "在线" : "离线"}）`,
           `正在使用：${data.foreground_app}`,
-          `屏幕：${data.screen} | 电量：${data.battery}% | ${data.charging} | ${data.network}`,
+          `屏幕：${data.screen} | 电量：${data.battery_text} | ${data.charging} | ${data.network}`,
           `数据来源：${data.source_text}（${data.report_time || "从未上报"}）`,
           data.note,
         ].filter(Boolean).join("\n"),

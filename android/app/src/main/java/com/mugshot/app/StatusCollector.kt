@@ -21,6 +21,8 @@ import android.telephony.TelephonyManager
  */
 object StatusCollector {
 
+    private const val USAGE_CACHE_MS = 30_000L
+
     data class Snapshot(
         val screenOn: Boolean,
         val foregroundApp: String,
@@ -34,7 +36,11 @@ object StatusCollector {
         val networkDetail: String,
         val deviceModel: String,
         val appVersion: String,
+        val usage24h: List<UsageEntry> = emptyList(), // 最近 24 小时各应用前台时长（top 8，30 秒缓存）
     )
+
+    /** 24 小时使用时长条目：包名、应用名、前台分钟数 */
+    data class UsageEntry(val pkg: String, val app: String, val min: Long)
 
     /**
      * 采集不到的字段及原因（供日志/界面提示）。空表示所有字段都能采集到。
@@ -91,7 +97,45 @@ object StatusCollector {
             networkDetail = network.second,
             deviceModel = Build.MODEL ?: "",
             appVersion = appVersion(ctx),
+            usage24h = collectUsage24h(ctx),
         )
+    }
+
+    private var usageCache: List<UsageEntry> = emptyList()
+    private var usageCacheAt = 0L
+
+    /**
+     * 最近 24 小时各应用前台使用时长（top 8）。
+     * 用 queryAndAggregateUsageStats 跨区间聚合，比 queryUsageStats 更贴近
+     * “连续 24 小时”语义（后者按日切桶，凌晨会只剩当天零点后的数据）。
+     * 30 秒缓存：上报间隔最短 2 秒，跨进程查询没必要每次都跑。
+     * totalTimeInForeground 在 API 28 以下不可靠（常为 0），低版本直接不采集。
+     * 未授予「使用情况访问权限」时返回空列表。
+     */
+    @SuppressLint("WrongConstant")
+    private fun collectUsage24h(ctx: Context): List<UsageEntry> {
+        val now = System.currentTimeMillis()
+        if (now - usageCacheAt < USAGE_CACHE_MS) return usageCache
+        usageCacheAt = now
+        usageCache = emptyList()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return usageCache
+        if (!hasUsageAccess(ctx)) return usageCache
+        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: return usageCache
+        val stats = try {
+            usm.queryAndAggregateUsageStats(now - 24 * 60 * 60_000L, now)
+        } catch (_: Exception) {
+            null
+        } ?: return usageCache
+        usageCache = stats.values
+            .asSequence()
+            .filter { it.packageName != ctx.packageName && it.totalTimeInForeground > 0 }
+            .map { UsageEntry(it.packageName, appLabel(ctx, it.packageName).ifBlank { it.packageName }, it.totalTimeInForeground / 60_000L) }
+            .filter { it.min > 0 }
+            .sortedByDescending { it.min }
+            .take(8)
+            .toList()
+        return usageCache
     }
 
     /** (level, status, source) */

@@ -31,6 +31,14 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                     }
                     put("foreground_apps", arr)
                 }
+                // 最近 24 小时使用时长（top 8）：由服务端随设备快照存储，插件 #群主用过什么 展示
+                if (snapshot.usage24h.isNotEmpty()) {
+                    val usageArr = org.json.JSONArray()
+                    for (u in snapshot.usage24h) {
+                        usageArr.put(org.json.JSONObject().put("pkg", u.pkg).put("app", u.app).put("min", u.min))
+                    }
+                    put("usage_24h", usageArr)
+                }
                 put("battery_level", snapshot.batteryLevel)
                 put("battery_status", snapshot.batteryStatus)
                 put("charging", snapshot.charging)
