@@ -55,8 +55,12 @@ func payloadSummary(p *ReportPayload) string {
 		}
 		apps = strings.Join(names, "/")
 	}
-	return fmt.Sprintf("app=%q multi=%d usage=%d screen=%v battery=%d%% %s net=%s ver=%s",
-		apps, len(p.ForegroundApps), len(p.Usage24h), p.ScreenOn, p.BatteryLevel, p.BatteryStatus, p.NetworkType, p.AppVersion)
+	temp := "-"
+	if p.BatteryTempC > 0 {
+		temp = fmt.Sprintf("%.1f°C", p.BatteryTempC)
+	}
+	return fmt.Sprintf("app=%q multi=%d usage=%d bg=%d screen=%v battery=%d%% temp=%s %s net=%s ver=%s",
+		apps, len(p.ForegroundApps), len(p.Usage24h), len(p.BackgroundApps), p.ScreenOn, p.BatteryLevel, temp, p.BatteryStatus, p.NetworkType, p.AppVersion)
 }
 
 // UsageApp is one entry of usage_24h: an app's foreground time over the
@@ -83,16 +87,18 @@ type ReportPayload struct {
 	ForegroundPackage string              `json:"foreground_package,omitempty"`
 	ForegroundApp     string              `json:"foreground_app,omitempty"`
 	ForegroundApps    []ForegroundAppInfo `json:"foreground_apps,omitempty"` // multi-window visible apps, focused first
+	BackgroundApps    []ForegroundAppInfo `json:"background_apps,omitempty"` // recently used, not on screen (top 5)
 	Usage24h          []UsageApp          `json:"usage_24h,omitempty"`       // per-app foreground time, trailing 24h, top 8
 	ScreenOn          bool                `json:"screen_on"`
-	BatteryLevel      int    `json:"battery_level"`  // 0-100, -1 unknown
-	BatteryStatus     string `json:"battery_status"` // charging|full|discharging|unknown
-	Charging          bool   `json:"charging"`
-	ChargingSource    string `json:"charging_source"` // ac|usb|wireless|none
-	NetworkType       string `json:"network_type"`    // wifi|mobile|none
-	NetworkDetail     string `json:"network_detail,omitempty"`
-	DeviceModel       string `json:"device_model,omitempty"`
-	AppVersion        string `json:"app_version,omitempty"`
+	BatteryLevel      int                 `json:"battery_level"`            // 0-100, -1 unknown
+	BatteryTempC      float64             `json:"battery_temp_c,omitempty"` // battery temperature, celsius
+	BatteryStatus     string              `json:"battery_status"`           // charging|full|discharging|unknown
+	Charging          bool                `json:"charging"`
+	ChargingSource    string              `json:"charging_source"` // ac|usb|wireless|none
+	NetworkType       string              `json:"network_type"`    // wifi|mobile|none
+	NetworkDetail     string              `json:"network_detail,omitempty"`
+	DeviceModel       string              `json:"device_model,omitempty"`
+	AppVersion        string              `json:"app_version,omitempty"`
 }
 
 // Report is one status submission.
