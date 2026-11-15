@@ -3,7 +3,8 @@
 // 规范依据（TRSS-Yunzai ESM 插件规范）：
 //  - 插件目录 plugins/mugshot，入口 index.js，导出 class Mugshot extends plugin
 //  - rule[].fnc 写方法名字符串；全部使用 import/export，无 require
-//  - 所有指令回复均通过 e.runtime.render 渲染为图片后发送（配合 QQBot 按钮）
+//  - 所有指令回复均渲染为图片后发送（三级渲染链：e.runtime.render → 宿主 lib/puppeteer →
+//    Bot.renderer，参考 huli-plugins；随机背景图 + 半透明毛玻璃卡片，见 model/backdrop.js）
 //  - 按钮仅 QQBot 适配器可用（见 model/buttons.js），其他协议端自动降级为纯图片
 //  - 定时任务 cron 为 6 位（秒 分 时 日 月 星期）
 //  - 权限：#群主更新 仅 Master（检查并直接更新插件自身；服务端更新走其自身的自动检查或 GUI）

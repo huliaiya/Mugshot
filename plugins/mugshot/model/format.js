@@ -155,6 +155,7 @@ export function statusView(resp) {
     source_class: meta.cls,
     request_id: maskRequestID(resp.request_id),
     note: resp.note || "",
+    note_class: resp.stale ? "warn" : "",
     stale: !!resp.stale,
   }
   // 详情模式：最近上报记录（服务端 recent 为正序，倒序展示最新在前）
