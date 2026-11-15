@@ -1,4 +1,5 @@
 # mugshot-server Linux ARM64 构建（适配 Ubuntu 26.04 ARM64 服务器）
+# - push 到 master/main：构建并刷新滚动预发布 dev（tar.gz + 裸二进制 + 插件包）
 # - push tag v* 时：构建并附加到 GitHub Release（tar.gz + 裸二进制）
 # - 同时打包 Yunzai 插件目录为 mugshot-plugin.tar.gz，供插件更新器下载
 name: build-linux-arm64
@@ -6,7 +7,6 @@ name: build-linux-arm64
 on:
   push:
     branches: [master, main]
-    paths: ["server/**", "plugins/**", ".github/workflows/build-linux-arm64.yml"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -142,6 +142,32 @@ jobs:
         with:
           name: mugshot-plugin
           path: mugshot-plugin_*.tar.gz
+
+  dev-release:
+    if: "!startsWith(github.ref, 'refs/tags/v')"
+    needs: [server, plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Publish rolling dev release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 固定文件名，覆盖式上传，避免 dev 预发布堆积历史构建
+          cp dist/mugshot-server_linux_arm64_*.tar.gz dist/mugshot-server-dev-linux-arm64.tar.gz
+          cp dist/mugshot-server_linux_arm64 dist/mugshot-server-dev-linux-arm64
+          cp dist/mugshot-gui_linux_arm64 dist/mugshot-gui-dev-linux-arm64
+          cp dist/mugshot-plugin_*.tar.gz dist/mugshot-plugin-dev.tar.gz
+          gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create dev --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Mugshot 开发构建" \
+              --notes "每次推送 master 自动编译：APK 与服务端 Linux ARM64 产物，均为最新提交构建。"
+          gh release upload dev dist/*-dev* --clobber --repo "$GITHUB_REPOSITORY"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

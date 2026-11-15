@@ -1,5 +1,5 @@
 # Mugshot Android APK 构建
-# - push 到 master 且改动 android/** 时：构建并上传 artifact
+# - push 到 master/main：构建并上传 artifact，同时刷新滚动预发布 dev 的 APK
 # - push tag v* 时：构建并附加到 GitHub Release
 # - 发布签名：仓库内置 keystore（android/app/mugshot-release.keystore，PKCS12），
 #   构建出的 release APK 已签名可直接安装，并用 apksigner verify 校验
@@ -8,7 +8,6 @@ name: build-android
 on:
   push:
     branches: [master, main]
-    paths: ["android/**", ".github/workflows/build-android.yml"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -45,8 +44,14 @@ jobs:
       - name: Rename artifact
         working-directory: android
         run: |
-          VER="${GITHUB_REF_NAME#v}"
-          cp app/build/outputs/apk/release/*.apk "Mugshot-${VER}-release.apk"
+          VER=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts | head -1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            NAME="Mugshot-${GITHUB_REF_NAME#v}-release.apk"
+          else
+            NAME="Mugshot-dev-release.apk"
+          fi
+          cp app/build/outputs/apk/release/*.apk "$NAME"
+          echo "VER=$VER" >> "$GITHUB_ENV"
           ls -la *.apk
 
       - name: Upload artifact
@@ -65,3 +70,15 @@ jobs:
             gh release create "${GITHUB_REF_NAME}" --repo "$GITHUB_REPOSITORY" \
               --title "Mugshot ${GITHUB_REF_NAME}" --generate-notes
           gh release upload "${GITHUB_REF_NAME}" android/Mugshot-*-release.apk --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Update rolling dev release
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 每次推送都刷新 dev 预发布（latest 接口不会返回预发布，不影响正式更新检查）
+          gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create dev --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Mugshot 开发构建" \
+              --notes "每次推送 master 自动编译：APK（版本 ${VER}）与服务端 Linux ARM64 产物，均为最新提交构建。"
+          gh release upload dev android/Mugshot-dev-release.apk --clobber --repo "$GITHUB_REPOSITORY"
