@@ -37,13 +37,43 @@ func missingPayloadFields(p *ReportPayload) string {
 	return " 缺失字段: " + strings.Join(missing, "、")
 }
 
+// payloadSummary 生成一行上报摘要，供 WS 与 HTTP 上报日志共用，保证两条
+// 通道的字段口径一致。multi 为多窗口同时可见的应用数（>1 时 app 列出全部）。
+func payloadSummary(p *ReportPayload) string {
+	if p == nil {
+		return "payload=空"
+	}
+	apps := p.ForegroundApp
+	if len(p.ForegroundApps) > 1 {
+		names := make([]string, 0, len(p.ForegroundApps))
+		for _, a := range p.ForegroundApps {
+			n := a.App
+			if n == "" {
+				n = a.Package
+			}
+			names = append(names, n)
+		}
+		apps = strings.Join(names, "/")
+	}
+	return fmt.Sprintf("app=%q multi=%d screen=%v battery=%d%% %s net=%s ver=%s",
+		apps, len(p.ForegroundApps), p.ScreenOn, p.BatteryLevel, p.BatteryStatus, p.NetworkType, p.AppVersion)
+}
+
+// ForegroundAppInfo is one entry of foreground_apps: an app visible on screen
+// at the same time as the focused one (split screen / floating window).
+type ForegroundAppInfo struct {
+	App     string `json:"app,omitempty"`
+	Package string `json:"package,omitempty"`
+}
+
 // ReportPayload is the minimal device status snapshot. Fields are collected
 // automatically by the Android app; nothing beyond what the feature needs is
 // ever uploaded (no user input, no screen text, no clipboard).
 type ReportPayload struct {
-	ForegroundPackage string `json:"foreground_package,omitempty"`
-	ForegroundApp     string `json:"foreground_app,omitempty"`
-	ScreenOn          bool   `json:"screen_on"`
+	ForegroundPackage string              `json:"foreground_package,omitempty"`
+	ForegroundApp     string              `json:"foreground_app,omitempty"`
+	ForegroundApps    []ForegroundAppInfo `json:"foreground_apps,omitempty"` // multi-window visible apps, focused first
+	ScreenOn          bool                `json:"screen_on"`
 	BatteryLevel      int    `json:"battery_level"`  // 0-100, -1 unknown
 	BatteryStatus     string `json:"battery_status"` // charging|full|discharging|unknown
 	Charging          bool   `json:"charging"`

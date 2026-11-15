@@ -515,16 +515,20 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case fresh && view.Online:
+		freshStart := time.Now()
 		rep, err := a.hub.RequestReport(view.DeviceID, "plugin fresh query from "+remoteIP(r), timeout)
 		if err != nil {
 			resp["data_source"] = "cache"
 			resp["note"] = err.Error()
 			resp["report"] = view.LastReport
-			log.Printf("[api] fresh 查询降级缓存 device=%s(%s) err=%v", view.DeviceName, maskID(view.DeviceID), err)
+			log.Printf("[api] fresh 查询降级缓存 device=%s(%s) 等待=%s err=%v",
+				view.DeviceName, maskID(view.DeviceID), time.Since(freshStart).Round(time.Millisecond), err)
 		} else {
 			resp["data_source"] = "live"
 			resp["report"] = rep
 			resp["note"] = ""
+			log.Printf("[api] fresh 查询成功（实时） device=%s(%s) 耗时=%s",
+				view.DeviceName, maskID(view.DeviceID), time.Since(freshStart).Round(time.Millisecond))
 			// refresh the view so last_report_at reflects the fresh report
 			if v2, _, err := a.store.GetDevice(view.DeviceID); err == nil {
 				a.hub.FillOnline([]*DeviceView{v2})
@@ -536,6 +540,8 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp["data_source"] = "cache"
 		resp["report"] = view.LastReport
 		resp["note"] = "设备离线，已返回最近缓存"
+		log.Printf("[api] fresh 查询返回缓存 device=%s(%s)（设备离线）",
+			view.DeviceName, maskID(view.DeviceID))
 	default:
 		resp["data_source"] = "cache"
 		resp["report"] = view.LastReport
@@ -578,8 +584,8 @@ func (a *API) handleHTTPReport(w http.ResponseWriter, r *http.Request) {
 	if m := missingPayloadFields(&rep.Payload); m != "" {
 		missing = m
 	}
-	log.Printf("[report] 设备 %s(%s) HTTP上报 app=%q battery=%d%% net=%s%s",
-		d.DeviceName, maskID(d.DeviceID), rep.Payload.ForegroundApp, rep.Payload.BatteryLevel, rep.Payload.NetworkType, missing)
+	log.Printf("[report] 设备 %s(%s) HTTP上报 %s%s",
+		d.DeviceName, maskID(d.DeviceID), payloadSummary(&rep.Payload), missing)
 	a.hub.broadcast("device_update", map[string]any{"device": d, "report": rep}, nil)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "server_time": nowMs()})
 }
