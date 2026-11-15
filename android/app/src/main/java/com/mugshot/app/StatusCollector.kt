@@ -219,14 +219,17 @@ object StatusCollector {
             events.getNextEvent(ev)
             val p = ev.packageName
             if (p.isNullOrBlank()) continue
-            when (ev.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    state[p] = ev.eventType
-                    resumeTs[p] = ev.timeStamp
-                }
-                UsageEvents.Event.ACTIVITY_PAUSED,
-                UsageEvents.Event.ACTIVITY_STOPPED,
-                UsageEvents.Event.ACTIVITY_DESTROYED -> state[p] = ev.eventType
+            val t = ev.eventType
+            // 只关心活动生命周期事件，通知/键盘锁等其他事件不影响可见性判定。
+            // ACTIVITY_DESTROYED(数值 4) 在公开 SDK 中是 @hide 常量，只能按数值引用；
+            // 进程被杀等场景可能只发 DESTROYED 而没有 STOPPED，需要同样视为已离开屏幕
+            if (t == UsageEvents.Event.ACTIVITY_RESUMED ||
+                t == UsageEvents.Event.ACTIVITY_PAUSED ||
+                t == UsageEvents.Event.ACTIVITY_STOPPED ||
+                t == 4
+            ) {
+                if (t == UsageEvents.Event.ACTIVITY_RESUMED) resumeTs[p] = ev.timeStamp
+                state[p] = t
             }
         }
         return state.entries
