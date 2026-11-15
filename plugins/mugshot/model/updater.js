@@ -50,13 +50,45 @@ async function resolveRemoteUrl() {
   return `https://github.com/${config.github_repo}.git`
 }
 
-/** 远端 main 分支最新提交 */
+/** 远端 main 分支最新提交（按镜像候选顺序尝试，任一源成功即返回） */
 async function remoteMainCommit() {
   const url = await resolveRemoteUrl()
-  const { stdout } = await execAsync(`git ls-remote "${url}" refs/heads/main`, { cwd: pluginDir, timeout: 30000 })
-  const sha = stdout.trim().split(/\s+/)[0]
-  if (!sha) throw new Error("远端没有 main 分支，请确认仓库地址")
-  return sha
+  return withCandidates(url, async u => {
+    const { stdout } = await execAsync(`git ls-remote "${u}" refs/heads/main`, { cwd: pluginDir, timeout: 20000 })
+    const sha = stdout.trim().split(/\s+/)[0]
+    if (!sha) throw new Error("远端没有 main 分支，请确认仓库地址")
+    return sha
+  })
+}
+
+// GitHub 直连在部分网络下不稳（GnuTLS recv error / 连接被掐断），
+// 更新与检查按候选源依次尝试：配置的镜像优先，其次直连，最后常见公共镜像
+const GITHUB_MIRROR_FALLBACKS = ["https://ghfast.top/", "https://gh-proxy.com/"]
+
+function mirrorCandidates(url) {
+  const list = []
+  const m = String(config.github_mirror || "").trim()
+  if (m) list.push(m.endsWith("/") ? m + url : `${m}/${url}`)
+  list.push(url)
+  if (/^https:\/\/github\.com\//.test(url)) {
+    for (const mf of GITHUB_MIRROR_FALLBACKS) list.push(mf + url)
+  }
+  return list
+}
+
+/** 依次尝试每个候选源执行 fn，全部失败时抛出最后一次的错误 */
+async function withCandidates(url, fn) {
+  const candidates = mirrorCandidates(url)
+  let lastErr
+  for (const u of candidates) {
+    try {
+      return await fn(u)
+    } catch (err) {
+      lastErr = err
+      logger.debug(`[Mugshot] git 访问 ${u} 失败（${err.message}），尝试下一个源`)
+    }
+  }
+  throw new Error(`${lastErr?.message || lastErr}（已尝试 ${candidates.length} 个源，可在 config/mugshot.yaml 配置 github_mirror 加速镜像）`)
 }
 
 // 检查结果缓存：#群主状态 等指令可能频繁触发，5 分钟内复用同一结果，
@@ -80,9 +112,12 @@ export async function updatePlugin() {
   }
   logger.mark(`[Mugshot] 开始更新插件 ${check.current} -> ${check.latest}`)
   const url = await resolveRemoteUrl()
-  // 拉 main 分支源码，再硬重置覆盖本地工作区（本地改动会被覆盖）
-  await execAsync(`git fetch --quiet "${url}" main`, { cwd: pluginDir, timeout: 120000 })
-  await execAsync("git reset --hard FETCH_HEAD", { cwd: pluginDir, timeout: 60000 })
+  // 拉取 main 分支源码后硬重置覆盖本地工作区（本地改动会被覆盖）；
+  // 网络不稳时自动切换镜像候选源重试
+  await withCandidates(url, async u => {
+    await execAsync(`git fetch --quiet "${u}" main`, { cwd: pluginDir, timeout: 90000 })
+    await execAsync("git reset --hard FETCH_HEAD", { cwd: pluginDir, timeout: 60000 })
+  })
   cache = null
   let after = check.latest
   try {
