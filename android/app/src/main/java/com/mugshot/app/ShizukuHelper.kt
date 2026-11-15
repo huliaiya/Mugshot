@@ -54,11 +54,27 @@ object ShizukuHelper {
         }
     }
 
+    // Shizuku 13.1.5 把 newProcess 声明为 private（仅库内部使用），
+    // 这里通过反射调用同一实现，避免引入整包 UserService 方案。
+    private val newProcessMethod: java.lang.reflect.Method? by lazy {
+        try {
+            Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java,
+            ).apply { isAccessible = true }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /** 用 Shizuku 的 shell 身份执行命令，返回 (退出码, 输出)；stderr 一并捕获 */
     fun shell(cmd: String): Pair<Int, String> {
         if (!hasPermission()) return Pair(-1, "未授权 Shizuku")
+        val m = newProcessMethod ?: return Pair(-1, "当前 Shizuku 版本不支持执行命令")
         return try {
-            val p = Shizuku.newProcess(arrayOf("sh", "-c", "$cmd 2>&1"), null, null)
+            val p = m.invoke(null, arrayOf("sh", "-c", "$cmd 2>&1"), null, null) as Process
             val out = p.inputStream.bufferedReader().readText()
             val code = p.waitFor()
             Pair(code, out.trim())
