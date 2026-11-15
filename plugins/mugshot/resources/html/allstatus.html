@@ -24,6 +24,7 @@
   .row { font-size: 14px; color: #aab4cc; }
   .row .k { color: {{ backdrop.accents[3] }}; margin-right: 6px; }
   .row .v { color: #eef3fb; font-weight: 600; }
+  .row.wide { grid-column: 1 / -1; }
   .row .v.app { background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; word-break: break-all; font-weight: 700; }
   .battery { display: flex; align-items: center; gap: 8px; }
   .battery .bar { display: block; flex: 1; height: 13px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); min-width: 96px; }
@@ -67,6 +68,8 @@
         <div class="row"><span class="k">屏幕</span><span class="v">{{ d.screenText }}</span></div>
         <div class="row"><span class="k">网络</span><span class="v">{{ d.networkText }}</span></div>
         <div class="row"><span class="k">充电</span><span class="v">{{ d.chargingText }}</span></div>
+        <div class="row"><span class="k">温度</span><span class="v">{{ d.tempText }}</span></div>
+        <div class="row wide"><span class="k">后台应用</span><span class="v">{{ d.backgroundText || "-" }}</span></div>
         <div class="row"><span class="k">最近上报</span><span class="v">{{ d.last_report_short }}</span></div>
       </div>
       {{ if d.usage.length }}

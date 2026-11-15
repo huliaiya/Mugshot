@@ -56,6 +56,8 @@
     <div class="row"><span class="k">正在使用</span><span class="v">{{ foreground_app }}</span></div>
     <div class="row"><span class="k">屏幕 / 网络</span><span class="v">{{ screen }} · {{ network }}</span></div>
     <div class="row"><span class="k">电池 / 充电</span><span class="v">{{ battery_text }} · {{ charging }}</span></div>
+    <div class="row"><span class="k">电池温度</span><span class="v">{{ temp_text }}</span></div>
+    <div class="row"><span class="k">后台应用</span><span class="v">{{ background_text || "-" }}</span></div>
   </div>
   {{ /if }}
 

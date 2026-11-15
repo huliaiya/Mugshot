@@ -72,6 +72,14 @@
       <div class="label">充电状态</div>
       <div class="value">{{ charging }}</div>
     </div>
+    <div class="cell">
+      <div class="label">电池温度</div>
+      <div class="value">{{ temp_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">后台应用</div>
+      <div class="value">{{ background_text || "-" }}</div>
+    </div>
   </div>
   {{ else }}
   <div class="app-hero">

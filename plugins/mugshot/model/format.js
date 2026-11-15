@@ -61,6 +61,26 @@ export function networkText(p) {
   }
 }
 
+/** 电池温度，读不到时返回 null */
+export function batteryTempC(payload) {
+  const t = Number(payload?.battery_temp_c)
+  return Number.isFinite(t) && t > 0 ? t : null
+}
+
+export function tempText(payload) {
+  const t = batteryTempC(payload)
+  return t === null ? "-" : `${t.toFixed(1)}°C`
+}
+
+/** 后台应用名称串（最近用过、当前不在前台），最多 5 个 */
+export function backgroundApps(payload) {
+  const list = Array.isArray(payload?.background_apps) ? payload.background_apps : []
+  return list
+    .slice(0, 5)
+    .map(a => a?.app || a?.package || "")
+    .filter(Boolean)
+}
+
 export function batteryLevel(payload) {
   const lvl = payload?.battery_level
   return typeof lvl === "number" && lvl >= 0 ? lvl : null
@@ -140,6 +160,8 @@ export function basicView(p) {
     battery_class: batteryClass(level),
     battery_width: level === null ? 100 : Math.min(100, Math.max(4, level)),
     charging: batteryStatusText(payload),
+    temp_text: tempText(payload),
+    background_text: backgroundApps(payload).join("、"),
   }
 }
 
@@ -186,6 +208,8 @@ export function allStatusView(d) {
     batteryText: level === null ? "无数据（本机读不到电量）" : `${level}%`,
     battery_class: batteryClass(level),
     battery_width: level === null ? 100 : Math.min(100, Math.max(4, level)),
+    tempText: tempText(p),
+    backgroundText: backgroundApps(p).join("、"),
     screenText: p.screen_on === undefined ? "无数据" : screenText(p.screen_on),
     networkText: p.network_type ? networkText(p) : "无数据",
     chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
