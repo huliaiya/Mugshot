@@ -182,7 +182,8 @@ class ReportService : Service(), WsClient.Listener {
         for (l in listeners) l.onServiceDegraded(reason)
     }
 
-    /** 每 15 分钟检查服务存活：被激进 ROM 杀掉后由 WatchdogReceiver 重新拉起 */
+    /** 每 30 分钟检查服务存活：被激进 ROM 杀掉后由 WatchdogReceiver 重新拉起。
+     *  用非唤醒闹钟（ELAPSED_REALTIME）：设备休眠时不主动唤醒 CPU，只在已醒时执行检查。 */
     private fun scheduleWatchdog() {
         try {
             val am = getSystemService(ALARM_SERVICE) as AlarmManager
@@ -193,9 +194,9 @@ class ReportService : Service(), WsClient.Listener {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             am.setInexactRepeating(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 15 * 60_000L,
-                15 * 60_000L,
+                AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + 30 * 60_000L,
+                30 * 60_000L,
                 pi,
             )
         } catch (e: Exception) {

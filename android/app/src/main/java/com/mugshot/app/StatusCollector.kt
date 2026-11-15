@@ -21,8 +21,10 @@ import android.telephony.TelephonyManager
  */
 object StatusCollector {
 
-    private const val USAGE_CACHE_MS = 30_000L
-    private const val COUNT_CACHE_MS = 10 * 60_000L
+    // 采集缓存：24h 时长 2 分钟、打开次数 30 分钟。UsageStats 是跨进程 DB 查询，
+    // 缩短轮询频率可明显减少 CPU 唤醒，同时不影响插件展示的时效。
+    private const val USAGE_CACHE_MS = 2 * 60_000L
+    private const val COUNT_CACHE_MS = 30 * 60_000L
 
     data class Snapshot(
         val screenOn: Boolean,
@@ -64,8 +66,7 @@ object StatusCollector {
     }
 
     /** 一行可读的上报摘要 + 缺失字段说明，供日志与界面共用 */
-    fun describe(ctx: Context): String {
-        val s = collect(ctx)
+    fun describe(ctx: Context, s: Snapshot = collect(ctx)): String {
         val missing = missingFields(ctx, s)
         val app = if (s.foregroundApps.size >= 2) s.foregroundApps.joinToString(" / ") { it.first }
         else s.foregroundApp
@@ -192,10 +193,18 @@ object StatusCollector {
     /** (level, status, source) */
     @Suppress("DEPRECATION")
     private fun batteryState(ctx: Context): Triple<Int, String, String> {
-        val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 } ?: -1
-
         val intent = ctx.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        var level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).takeIf { it in 0..100 } ?: -1
+        // 部分 ROM 的 CAPACITY 属性会返回 -1，退回电池广播里的 level/scale（绝大多数机型都能读到）
+        if (level < 0 && intent != null) {
+            val raw = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).takeIf { it > 0 } ?: 100
+            if (raw in 0..scale) level = (raw * 100 / scale).coerceIn(0, 100)
+        }
+        // 广播也读不到时（极少数定制系统），用 Shizuku 的 dumpsys battery 兜底
+        if (level < 0) level = ShizukuHelper.batteryLevel()
+
         var status = "unknown"
         var source = "none"
         if (intent != null) {

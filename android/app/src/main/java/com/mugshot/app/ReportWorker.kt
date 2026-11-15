@@ -17,6 +17,14 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         if (!Prefs.consent || !Prefs.isConfigured()) return@withContext Result.success()
+        // WS 长连接正常时定时上报足够新鲜，跳过本次 HTTP 兜底，避免每 15 分钟
+        // 重复采集 + 建立一次 HTTPS 连接（射频唤醒的主要来源之一）。
+        val fresh = Prefs.lastReportTs > 0 &&
+            System.currentTimeMillis() - Prefs.lastReportTs < 10 * 60_000L
+        if (fresh) {
+            LogStore.log("worker", "WS 上报新鲜（${(System.currentTimeMillis() - Prefs.lastReportTs) / 1000}s 前），跳过 HTTP 兜底")
+            return@withContext Result.success()
+        }
         try {
             val snapshot = StatusCollector.collect(applicationContext)
             val payload = JSONObject().apply {
@@ -78,7 +86,7 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             val code = conn.responseCode
             conn.disconnect()
             if (code in 200..299) {
-                LogStore.log("worker", "HTTP 兜底上报成功：" + StatusCollector.describe(applicationContext))
+                LogStore.log("worker", "HTTP 兜底上报成功：" + StatusCollector.describe(applicationContext, snapshot))
                 Result.success()
             } else {
                 LogStore.log("worker", "HTTP 兜底上报失败 HTTP $code，等待重试")

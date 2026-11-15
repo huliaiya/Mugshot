@@ -89,7 +89,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
             while (isActive) {
                 refreshDeviceInfo()
-                delay(2000)
+                delay(5000)
             }
         }
     }

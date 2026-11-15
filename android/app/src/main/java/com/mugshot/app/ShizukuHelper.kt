@@ -116,6 +116,27 @@ object ShizukuHelper {
     }
 
     /**
+     * 电量兜底：BatteryManager 与电池广播都读不到时，用 shell 读 dumpsys battery
+     * 的 level 字段。结果缓存 1 分钟，避免高频 fork shell 进程。
+     */
+    fun batteryLevel(): Int {
+        val now = System.currentTimeMillis()
+        if (now - batteryCacheAt < 60_000L) return batteryCache
+        batteryCacheAt = now
+        batteryCache = -1
+        if (!hasPermission()) return batteryCache
+        val (code, out) = shell("dumpsys battery")
+        if (code != 0) return batteryCache
+        val m = Regex("""level:\s*(\d{1,3})""").find(out) ?: return batteryCache
+        batteryCache = m.groupValues[1].toIntOrNull()?.takeIf { it in 0..100 } ?: -1
+        if (batteryCache >= 0) LogStore.log("shizuku", "dumpsys 读取电量=${batteryCache}%")
+        return batteryCache
+    }
+
+    private var batteryCacheAt = 0L
+    private var batteryCache = -1
+
+    /**
      * 使用情况权限不可用时的前台应用兜底：shell 读 dumpsys activity，
      * 取当前 resumed/top 的包名。失败返回空串。
      */

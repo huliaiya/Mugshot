@@ -38,14 +38,16 @@ class WsClient(
         const val STATE_OFFLINE = "offline"
         const val STATE_ERROR = "error"
         private val BACKOFF = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000)
-        private const val HEARTBEAT_MS = 25_000L
+        // 心跳/协议 ping 45s：服务端 90s 无 pong 才判离线，45s 留足余量；
+        // 相比 25s 可少唤醒约 45% 的射频，息屏状态省电更明显。
+        private const val HEARTBEAT_MS = 45_000L
         private const val REQUEST_DEDUP_MS = 2_000L
     }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // websocket 长连接不设读超时
-        .pingInterval(25, TimeUnit.SECONDS)    // OkHttp 协议层 ping，保持 NAT
+        .pingInterval(45, TimeUnit.SECONDS)    // OkHttp 协议层 ping，保持 NAT
         .build()
 
     private val main = Handler(Looper.getMainLooper())
@@ -269,7 +271,7 @@ class WsClient(
         val kind = if (!requestId.isNullOrEmpty()) "按需上报(响应服务器要求)" else "定时上报"
         LogStore.log(
             "ws", "$kind #$reportSeq ${body.length}B 采集+发送 ${collectMs}ms：" +
-                StatusCollector.describe(context)
+                StatusCollector.describe(context, s)
         )
     }
 
@@ -279,7 +281,7 @@ class WsClient(
             override fun run() {
                 heartbeatSeq++
                 webSocket.send(JSONObject().put("type", "heartbeat").toString())
-                // 每 4 次心跳记一行（每 100 秒）：证明链路存活又不至于刷屏
+                // 每 4 次心跳记一行（约 3 分钟）：证明链路存活又不至于刷屏
                 if (heartbeatSeq % 4 == 0) {
                     val up = (System.currentTimeMillis() - sessionStartTs) / 1000
                     LogStore.log("ws", "心跳 #${heartbeatSeq}（连续在线 ${up / 60} 分 ${up % 60} 秒）")
@@ -291,12 +293,24 @@ class WsClient(
 
         reportTask = object : Runnable {
             override fun run() {
-                sendReport(webSocket, null, StatusCollector.collect(context))
-                main.postDelayed(this, Prefs.reportIntervalSec * 1000L)
+                val s = StatusCollector.collect(context)
+                sendReport(webSocket, null, s)
+                main.postDelayed(this, nextReportDelay(s))
             }
         }
         main.postDelayed(reportTask!!, 1_000L) // register_ok 后尽快发一次首报
         LogStore.log("ws", "定时器已启动：心跳每 ${HEARTBEAT_MS / 1000}s，首报 1s 后")
+    }
+
+    /**
+     * 定时上报间隔：息屏且未充电时退避到 5 分钟，其余情况用用户设置值。
+     * 息屏期间数据变化少，拉长间隔可显著减少 CPU 唤醒与射频唤醒；
+     * 服务器主动 request_report 不受影响，仍会立即采集回复。
+     */
+    private fun nextReportDelay(s: StatusCollector.Snapshot): Long {
+        val base = Prefs.reportIntervalSec * 1000L
+        if (!s.screenOn && !s.charging) return maxOf(base, 5 * 60_000L)
+        return base
     }
 
     private fun cancelTimers() {
