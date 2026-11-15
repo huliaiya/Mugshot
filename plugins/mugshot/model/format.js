@@ -178,6 +178,8 @@ export function commandFor(name) {
 export function allStatusView(d) {
   const p = d?.last_report?.payload || {}
   const level = batteryLevel(p)
+  const usage = Array.isArray(p.usage_24h) ? p.usage_24h : []
+  const usageMax = usage.reduce((m, u) => Math.max(m, Number(u?.min) || 0), 1)
   return {
     ...deviceView(d),
     appText: foregroundText(p),
@@ -188,6 +190,13 @@ export function allStatusView(d) {
     networkText: p.network_type ? networkText(p) : "无数据",
     chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
     report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
+    usage_total: usage.length ? formatMinutes(usage.reduce((sum, u) => sum + (Number(u?.min) || 0), 0)) : "",
+    usage: usage.slice(0, 3).map(u => ({
+      app: u?.app || u?.pkg || "未知应用",
+      time: formatMinutes(u?.min),
+      count_text: typeof u?.count === "number" && u.count > 0 ? `${u.count}次` : "",
+      width: Math.min(100, Math.max(6, Math.round(((Number(u?.min) || 0) / usageMax) * 100))),
+    })),
   }
 }
 

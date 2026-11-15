@@ -203,6 +203,7 @@ export class Mugshot extends plugin {
         apps: usage.map(u => ({
           app: u.app || u.pkg || "未知应用",
           time: formatMinutes(u.min),
+          count_text: typeof u.count === "number" && u.count > 0 ? `${u.count}次` : "",
           width: Math.min(100, Math.max(6, Math.round(((Number(u.min) || 0) / max) * 100))),
         })),
       }

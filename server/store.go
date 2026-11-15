@@ -63,9 +63,10 @@ func payloadSummary(p *ReportPayload) string {
 // trailing 24h window, in minutes. Stored with the device's latest report so
 // the plugin can render usage stats without waking the phone.
 type UsageApp struct {
-	Pkg string `json:"pkg"`
-	App string `json:"app"`
-	Min int64  `json:"min"`
+	Pkg   string `json:"pkg"`
+	App   string `json:"app"`
+	Min   int64  `json:"min"`
+	Count int64  `json:"count,omitempty"` // 24h 前台启动次数（ACTIVITY_RESUMED 计数）
 }
 
 // ForegroundAppInfo is one entry of foreground_apps: an app visible on screen
