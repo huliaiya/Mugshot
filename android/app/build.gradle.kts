@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 35
         // versionCode 每次发版都要递增：与已安装版本相同时系统会拒绝覆盖安装
-        versionCode = 17
+        versionCode = 18
 
         // 版本号 = 构建时的 Git 短哈希（CI 传 -PgitHash=<sha8>，本地默认 dev）
         val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"
@@ -67,4 +67,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Shizuku：可选增强（自动授权使用情况权限、后台保活命令），未安装时全部能力自动降级
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }

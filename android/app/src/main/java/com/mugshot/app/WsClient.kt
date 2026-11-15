@@ -236,7 +236,13 @@ class WsClient(
             if (s.usage24h.isNotEmpty()) {
                 val usageArr = org.json.JSONArray()
                 for (u in s.usage24h) {
-                    usageArr.put(org.json.JSONObject().put("pkg", u.pkg).put("app", u.app).put("min", u.min))
+                    usageArr.put(
+                        org.json.JSONObject()
+                            .put("pkg", u.pkg)
+                            .put("app", u.app)
+                            .put("min", u.min)
+                            .put("count", u.count),
+                    )
                 }
                 put("usage_24h", usageArr)
             }

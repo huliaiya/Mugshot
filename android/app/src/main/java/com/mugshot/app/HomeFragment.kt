@@ -1,5 +1,6 @@
 package com.mugshot.app
 
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import rikka.shizuku.Shizuku
 
 /**
  * 首页：连接状态卡（实时）、设备信息卡（2 秒自动刷新）、权限引导面板。
@@ -34,6 +36,32 @@ class HomeFragment : Fragment(), WsClient.Listener {
     private lateinit var stateDot: View
     private lateinit var permPanel: LinearLayout
     private lateinit var probeBtn: Button
+    private lateinit var shizukuStatus: TextView
+    private lateinit var shizukuBtn: Button
+
+    // Shizuku 授权结果回调（授权成功后立刻应用后台保活命令）
+    private val shizukuPermListener = Shizuku.OnRequestPermissionResultListener { code, result ->
+        if (code == ShizukuHelper.REQUEST_CODE) {
+            val activityRef = activity
+            val appCtx = activityRef?.applicationContext
+            val granted = result == PackageManager.PERMISSION_GRANTED
+            activityRef?.runOnUiThread {
+                if (granted) {
+                    Toast.makeText(activityRef, getString(R.string.shizuku_toast_applying), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(activityRef, "Shizuku 授权被拒绝", Toast.LENGTH_SHORT).show()
+                }
+            }
+            if (granted && appCtx != null) {
+                Thread {
+                    ShizukuHelper.applyBackgroundOptimizations(appCtx)
+                    activityRef?.runOnUiThread { refreshShizuku() }
+                }.start()
+            } else {
+                activityRef?.runOnUiThread { refreshShizuku() }
+            }
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -47,6 +75,10 @@ class HomeFragment : Fragment(), WsClient.Listener {
         stateDot = view.findViewById(R.id.state_dot)
         permPanel = view.findViewById(R.id.perm_panel)
         probeBtn = view.findViewById(R.id.btn_probe)
+        shizukuStatus = view.findViewById(R.id.shizuku_status)
+        shizukuBtn = view.findViewById(R.id.btn_shizuku)
+        shizukuBtn.setOnClickListener { onShizukuClicked() }
+        Shizuku.addRequestPermissionResultListener(shizukuPermListener)
 
         probeBtn.setOnClickListener { probeConnection() }
         view.findViewById<Button>(R.id.btn_usage).setOnClickListener { VendorHelper.openUsageAccessSettings(requireActivity()) }
@@ -65,6 +97,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
     override fun onResume() {
         super.onResume()
         refreshPermPanel()
+        refreshShizuku()
         refreshProbeState()
         ReportService.removeListener(this)
         if (ReportService.isRunning) {
@@ -81,6 +114,11 @@ class HomeFragment : Fragment(), WsClient.Listener {
         } else {
             renderState(WsClient.STATE_OFFLINE, getString(R.string.state_detail_empty))
         }
+    }
+
+    override fun onDestroyView() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermListener)
+        super.onDestroyView()
     }
 
     override fun onPause() {
@@ -189,6 +227,61 @@ class HomeFragment : Fragment(), WsClient.Listener {
 
     private fun refreshProbeState() {
         probeBtn.text = if (Prefs.isConfigured()) getString(R.string.btn_retest) else getString(R.string.btn_configure_first)
+    }
+
+    // ---- Shizuku 增强 ----
+
+    private fun refreshShizuku() {
+        if (view == null) return
+        val ctx = requireContext().applicationContext
+        val installed = ShizukuHelper.isInstalled(ctx)
+        val running = installed && ShizukuHelper.isRunning()
+        val granted = running && ShizukuHelper.hasPermission()
+        when {
+            granted -> {
+                shizukuStatus.text = getString(R.string.shizuku_granted)
+                shizukuBtn.text = getString(R.string.btn_shizuku_apply)
+                shizukuBtn.isEnabled = true
+            }
+            running -> {
+                shizukuStatus.text = getString(R.string.shizuku_ready)
+                shizukuBtn.text = getString(R.string.btn_shizuku_grant)
+                shizukuBtn.isEnabled = true
+            }
+            else -> {
+                shizukuStatus.text = getString(R.string.shizuku_not_running)
+                shizukuBtn.text = getString(R.string.btn_shizuku_need_app)
+                shizukuBtn.isEnabled = installed
+            }
+        }
+    }
+
+    private fun onShizukuClicked() {
+        val ctx = requireContext()
+        when {
+            !ShizukuHelper.isInstalled(ctx) -> {
+                Toast.makeText(ctx, R.string.shizuku_toast_install, Toast.LENGTH_SHORT).show()
+            }
+            !ShizukuHelper.isRunning() -> {
+                Toast.makeText(ctx, R.string.shizuku_toast_start, Toast.LENGTH_SHORT).show()
+            }
+            !ShizukuHelper.hasPermission() -> {
+                if (!ShizukuHelper.requestPermission()) {
+                    Toast.makeText(ctx, R.string.shizuku_toast_start, Toast.LENGTH_SHORT).show()
+                }
+            }
+            else -> {
+                Toast.makeText(ctx, R.string.shizuku_toast_applying, Toast.LENGTH_SHORT).show()
+                val appCtx = ctx.applicationContext
+                Thread {
+                    val msg = ShizukuHelper.applyBackgroundOptimizations(appCtx)
+                    activity?.runOnUiThread {
+                        Toast.makeText(appCtx, msg, Toast.LENGTH_LONG).show()
+                        refreshShizuku()
+                    }
+                }.start()
+            }
+        }
     }
 
     // ---- 连接探测（服务未运行时） ----

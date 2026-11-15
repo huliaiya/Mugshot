@@ -1,5 +1,6 @@
 package com.mugshot.app
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,9 +8,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -17,12 +21,15 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 
 /**
- * 设备状态上报前台服务（dataSync 类型）。
+ * 设备状态上报前台服务（specialUse 类型）。
  *
- * Android 15 起 dataSync 类型前台服务每日累计运行约 6 小时配额，超时后系统强制停止。
- * 服务被停后：
- *  - WorkManager 的 HTTP 周期上报继续兜底（ReportWorker → POST /api/v1/report）
- *  - 下次用户打开 App 时会重新拉起服务
+ * 使用 specialUse 而非 dataSync：Android 15 的 dataSync 有每日约 6 小时配额，
+ * 超时会被系统停止，典型表现是"滑到后台一段时间就断开"；specialUse 无此配额。
+ * 另外三重保活：
+ *  - START_STICKY + onTaskRemoved 重新拉起
+ *  - 每 15 分钟看门狗闹钟（WatchdogReceiver）检查服务存活
+ *  - Shizuku 已授权时应用 Doze 白名单 / 待机桶 active / 后台运行放行
+ * 服务被停后仍有 WorkManager HTTP 兜底上报（ReportWorker → POST /api/v1/report）。
  */
 class ReportService : Service(), WsClient.Listener {
 
@@ -110,7 +117,19 @@ class ReportService : Service(), WsClient.Listener {
         LogStore.markRestart(
             if (intent == null) "启动（系统重建，START_STICKY）" else "启动（第 $startId 次）"
         )
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_connecting)))
+        val notif = buildNotification(getString(R.string.service_connecting))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notif,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notif)
+        }
+        scheduleWatchdog()
+        applyShizukuOptimizationsOnce()
 
         wsClient?.stop()
         wsClient = WsClient(applicationContext, this).also { it.start() }
@@ -163,6 +182,39 @@ class ReportService : Service(), WsClient.Listener {
         for (l in listeners) l.onServiceDegraded(reason)
     }
 
+    /** 每 15 分钟检查服务存活：被激进 ROM 杀掉后由 WatchdogReceiver 重新拉起 */
+    private fun scheduleWatchdog() {
+        try {
+            val am = getSystemService(ALARM_SERVICE) as AlarmManager
+            val pi = PendingIntent.getBroadcast(
+                this,
+                1,
+                Intent(this, WatchdogReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            am.setInexactRepeating(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 15 * 60_000L,
+                15 * 60_000L,
+                pi,
+            )
+        } catch (e: Exception) {
+            LogStore.log("service", "看门狗闹钟设置失败：" + (e.message ?: "未知错误"))
+        }
+    }
+
+    /** Shizuku 已授权时应用一次后台保活命令（幂等，放后台线程，失败不影响上报） */
+    private fun applyShizukuOptimizationsOnce() {
+        if (!ShizukuHelper.hasPermission()) return
+        Thread {
+            try {
+                ShizukuHelper.applyBackgroundOptimizations(applicationContext)
+            } catch (_: Throwable) {
+                // 保活优化失败不影响正常上报
+            }
+        }.start()
+    }
+
     // ---- notification ----
 
     private fun createChannel() {
@@ -203,7 +255,7 @@ class ReportService : Service(), WsClient.Listener {
         nm.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    // ---- WorkManager HTTP 兜底上报（WS 不可用 / dataSync 配额耗尽后仍然工作） ----
+    // ---- WorkManager HTTP 兜底上报（WS 不可用 / 服务被杀后仍然工作） ----
 
     private fun scheduleFallbackWork() {
         val request = PeriodicWorkRequestBuilder<ReportWorker>(15, java.util.concurrent.TimeUnit.MINUTES)

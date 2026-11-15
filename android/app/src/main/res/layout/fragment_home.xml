@@ -140,5 +140,48 @@
                 android:text="@string/btn_autostart"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
         </LinearLayout>
+
+        <!-- Shizuku 增强卡（可选）：自动授权使用情况权限 + 后台保活 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="8dp"
+            android:text="@string/home_section_shizuku"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_main" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/shizuku_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/shizuku_not_running"
+                android:textColor="@color/text_sub"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/shizuku_hint"
+                android:textColor="@color/text_sub"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_shizuku"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/btn_shizuku_grant"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

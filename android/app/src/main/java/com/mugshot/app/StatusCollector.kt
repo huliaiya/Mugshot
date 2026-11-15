@@ -22,6 +22,7 @@ import android.telephony.TelephonyManager
 object StatusCollector {
 
     private const val USAGE_CACHE_MS = 30_000L
+    private const val COUNT_CACHE_MS = 10 * 60_000L
 
     data class Snapshot(
         val screenOn: Boolean,
@@ -39,8 +40,8 @@ object StatusCollector {
         val usage24h: List<UsageEntry> = emptyList(), // 最近 24 小时各应用前台时长（top 8，30 秒缓存）
     )
 
-    /** 24 小时使用时长条目：包名、应用名、前台分钟数 */
-    data class UsageEntry(val pkg: String, val app: String, val min: Long)
+    /** 24 小时使用条目：包名、应用名、前台分钟数、打开次数（ACTIVITY_RESUMED 计数） */
+    data class UsageEntry(val pkg: String, val app: String, val min: Long, val count: Long = 0)
 
     /**
      * 采集不到的字段及原因（供日志/界面提示）。空表示所有字段都能采集到。
@@ -101,8 +102,50 @@ object StatusCollector {
         )
     }
 
+    /**
+     * 最近 24 小时各应用打开次数（ACTIVITY_RESUMED 事件计数）。
+     * 事件流一次 24 小时窗口可能有上万条，单独做 10 分钟缓存，
+     * 与 30 秒的时长缓存解耦；API 29 以下事件 getter 不可用，直接返回空。
+     */
+    @SuppressLint("WrongConstant")
+    private fun collectLaunchCounts(ctx: Context, now: Long): Map<String, Long> {
+        if (now - countCacheAt < COUNT_CACHE_MS) return countCache
+        countCacheAt = now
+        countCache = emptyMap()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return countCache
+        if (!hasUsageAccess(ctx)) return countCache
+        val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            ?: return countCache
+        val events = try {
+            usm.queryEvents(now - 24 * 60 * 60_000L, now)
+        } catch (_: Exception) {
+            null
+        } ?: return countCache
+        val counts = HashMap<String, Long>()
+        val ev = UsageEvents.Event()
+        var lastResumed = ""
+        try {
+            while (events.hasNextEvent()) {
+                events.getNextEvent(ev)
+                val p = ev.packageName
+                if (p.isNullOrBlank()) continue
+                // 同一应用内切换 Activity 也会产生 RESUMED，只有"换了应用"才算一次打开
+                if (ev.eventType == UsageEvents.Event.ACTIVITY_RESUMED && p != lastResumed) {
+                    counts[p] = (counts[p] ?: 0L) + 1
+                    lastResumed = p
+                }
+            }
+        } catch (_: Exception) {
+            // 个别 ROM 的事件流会在中途抛异常，返回已统计部分
+        }
+        countCache = counts
+        return counts
+    }
+
     private var usageCache: List<UsageEntry> = emptyList()
     private var usageCacheAt = 0L
+    private var countCache: Map<String, Long> = emptyMap()
+    private var countCacheAt = 0L
 
     /**
      * 最近 24 小时各应用前台使用时长（top 8）。
@@ -127,10 +170,18 @@ object StatusCollector {
         } catch (_: Exception) {
             null
         } ?: return usageCache
+        val counts = collectLaunchCounts(ctx, now)
         usageCache = stats.values
             .asSequence()
             .filter { it.packageName != ctx.packageName && it.totalTimeInForeground > 0 }
-            .map { UsageEntry(it.packageName, appLabel(ctx, it.packageName).ifBlank { it.packageName }, it.totalTimeInForeground / 60_000L) }
+            .map {
+                UsageEntry(
+                    it.packageName,
+                    appLabel(ctx, it.packageName).ifBlank { it.packageName },
+                    it.totalTimeInForeground / 60_000L,
+                    counts[it.packageName] ?: 0L,
+                )
+            }
             .filter { it.min > 0 }
             .sortedByDescending { it.min }
             .take(8)
@@ -213,7 +264,11 @@ object StatusCollector {
      */
     @SuppressLint("WrongConstant")
     fun foregroundApp(ctx: Context): Pair<String, String> {
-        if (!hasUsageAccess(ctx)) return Pair("", "")
+        // 没有使用情况权限时，若 Shizuku 已授权则用 shell 读 dumpsys 兜底
+        if (!hasUsageAccess(ctx)) {
+            val p = ShizukuHelper.dumpsysForegroundPackage()
+            return if (p.isBlank()) Pair("", "") else Pair(appLabel(ctx, p).ifBlank { p }, p)
+        }
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
         var pkg = ""

@@ -42,6 +42,11 @@
 
 `#群主查看` / `#群主在干嘛` 不带设备名时渲染全部设备状态卡片，可再加设备名查看单台。
 
+### 后台保活与 Shizuku（可选）
+
+- 上报服务使用 `specialUse` 前台服务类型，避免 Android 15 对 `dataSync` 的每日约 6 小时配额；配合 START_STICKY、任务划掉自动重启与 15 分钟看门狗闹钟，降低"滑到后台就断连"的概率。
+- 安装并运行 Shizuku（`https://shizuku.rikka.app/`）后，首页「Shizuku 增强」面板可一键完成：代为授予使用情况访问权限（拿到前台应用、24 小时使用时长与打开次数）、加入电池/Doze 白名单、把待机桶设为 active、放宽后台运行限制。未安装或未授权时全部能力自动降级，不影响上报。
+
 ## 快速开始
 
 1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；应用菜单点"Mugshot 服务端"打开图形管理面板（概览/运行日志/接入信息/设置四页，Token 自动显示可复制，设置页可改监听地址、Token、限流、保留天数等，改完即时生效无需重启，改端口后接入信息页地址自动同步），无桌面环境可在终端运行 `mugshot-ctl`，详见 `docs/DEPLOY.md`

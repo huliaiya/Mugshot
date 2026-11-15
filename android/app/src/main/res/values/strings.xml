@@ -32,6 +32,17 @@
     <string name="perm_name_usage">使用情况访问权限</string>
     <string name="perm_name_battery">电池优化白名单</string>
     <string name="perm_name_notification">通知权限</string>
+    <string name="home_section_shizuku">Shizuku 增强（可选）</string>
+    <string name="shizuku_hint">一键授权使用情况访问、加入电池/Doze 白名单并把待机桶设为 active，减少切到后台被系统断开</string>
+    <string name="shizuku_not_running">未检测到运行中的 Shizuku</string>
+    <string name="shizuku_ready">Shizuku 运行中，尚未授权</string>
+    <string name="shizuku_granted">Shizuku 已授权，可应用后台保活优化</string>
+    <string name="btn_shizuku_grant">请求 Shizuku 授权</string>
+    <string name="btn_shizuku_apply">应用后台保活优化</string>
+    <string name="btn_shizuku_need_app">需先安装并启动 Shizuku</string>
+    <string name="shizuku_toast_install">未安装 Shizuku，可从应用商店或官网获取</string>
+    <string name="shizuku_toast_start">请先打开 Shizuku 应用并启动服务</string>
+    <string name="shizuku_toast_applying">正在应用后台保活优化…</string>
 
     <!-- 设置 -->
     <string name="label_server_url">服务器地址（mugshot-server）</string>

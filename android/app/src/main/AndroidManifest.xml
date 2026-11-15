@@ -8,7 +8,11 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 14+：常驻上报属于用户主动开启的持续监控，使用 specialUse 类型，
+         避免 dataSync 类型在 Android 15 的每日约 6 小时配额导致后台断开 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 可选：通过 Shizuku（adb/root 授权）代为授予权限并执行后台保活命令 -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 仅用于引导用户跳转电池优化白名单设置页，申请豁免 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -49,14 +53,33 @@
             android:exported="false"
             android:label="@string/title_settings" />
 
-        <!-- 设备状态上报前台服务：dataSync 类型（Android 15 对该类型有每日约 6 小时配额，
-             超时后系统会停止服务；App 会自动降级为 WorkManager 周期 HTTP 上报并提示用户）。
+        <!-- 设备状态上报前台服务：specialUse 类型（无每日时长配额，避免 dataSync 在
+             Android 15 的 6 小时限制；仍保留 WorkManager 周期 HTTP 兜底）。
              stopWithTask=false：从最近任务划掉后服务继续运行，配合 onTaskRemoved 保活 -->
         <service
             android:name=".ReportService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="用户主动开启的个人设备状态远程上报（持续连接自建服务器）" />
+        </service>
+
+        <!-- 看门狗：每 15 分钟检查上报服务是否存活，被系统杀掉时重新拉起 -->
+        <receiver
+            android:name=".WatchdogReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Shizuku 授权回调（由其 App 通过该 Provider 回传授权状态） -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <receiver
             android:name=".BootReceiver"
