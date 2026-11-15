@@ -67,7 +67,8 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 
 ## 更新
 
-- 启动时与每日定时检查更新，仅记录日志；`#群主更新` 走宿主内置更新机制（TRSS/Miao 的 other/update.js）更新插件本体，自动处理依赖安装与重启，宿主机制不可用时回退为直接拉取 main 分支源码；服务端更新由服务端自身的定时检查或 GUI"设置"页负责，插件不参与
+- 启动时与每日定时检查更新，仅记录日志；`#群主更新` 走宿主内置更新机制（TRSS/Miao 的 other/update.js）更新插件本体，自动处理依赖安装与重启，宿主机制不可用或更新失败时回退为直接拉取 main 分支源码；服务端更新由服务端自身的定时检查或 GUI"设置"页负责，插件不参与
+- 更新与检查更新支持镜像加速：GitHub 直连失败（如 GnuTLS recv error）时自动依次尝试常见公共镜像（ghfast.top / gh-proxy.com）；也可在 `config/mugshot.yaml` 的 `github_mirror` 填自定义镜像前缀（如 `https://ghfast.top/`），配置的镜像优先
 - 插件更新 = 拉取仓库 `main` 分支源码并覆盖本地插件目录（`git fetch` + `git reset --hard`），因此插件需以 `git clone -b main` 方式安装；插件版本以本地提交短哈希表示
 - 远端地址优先取插件目录的 `origin`，缺失时回退到 `github_repo` 配置；服务端更新走服务端自更新链路（下载新版本替换二进制后自动重启）
 

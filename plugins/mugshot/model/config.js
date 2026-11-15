@@ -21,6 +21,9 @@ const DEFAULT = {
   detail_fresh: true,
   // 插件更新时若插件目录的 git 没有 origin，则回退到此仓库拉取 main 分支
   github_repo: GITHUB_REPO_DEFAULT,
+  // GitHub 加速镜像前缀（直连不稳时填写，如 https://ghfast.top/ 或 https://gh-proxy.com/），
+  // 插件更新会优先经镜像拉取，未填写时也会自动尝试常见镜像
+  github_mirror: "",
   // 启动时与每日定时检查更新（仅日志提示，不自动更新）
   auto_update_check: true,
   // 设备选择按钮每行个数（每行最多 10，总行数最多 5）
