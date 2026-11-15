@@ -24,7 +24,7 @@ import {
   pluginFooter,
 } from "./model/format.js"
 import { getBackdrop } from "./model/backdrop.js"
-import { checkForUpdate, updatePlugin, silentCheck } from "./model/updater.js"
+import { checkForUpdate, updatePlugin, silentCheck, updateViaHost, updateLogViaHost } from "./model/updater.js"
 
 /* global logger, Bot */
 
@@ -59,6 +59,7 @@ export class Mugshot extends plugin {
         { reg: "^#群主详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
         { reg: "^#群主状态$", fnc: "serverStatus", permission: "all" },
         { reg: "^#群主更新$", fnc: "pluginUpdate", permission: "master" },
+        { reg: "^#群主更新日志$", fnc: "updateLog" },
       ],
     })
   }
@@ -105,7 +106,8 @@ export class Mugshot extends plugin {
           name: "系统维护",
           list: [
             { cmd: "#群主状态", desc: "服务端健康状态与版本" },
-            { cmd: "#群主更新", desc: "检查并直接更新插件（仅 Master）" },
+            { cmd: "#群主更新", desc: "用宿主更新机制更新插件本体（自动装依赖与重启，仅 Master）" },
+            { cmd: "#群主更新日志", desc: "查看插件最近提交记录（所有人）" },
           ],
         },
       ],
@@ -223,6 +225,15 @@ export class Mugshot extends plugin {
 
   /** #群主更新 实际逻辑（外层 pluginUpdate 负责防重入锁） */
   async #doPluginUpdate() {
+    // 优先宿主更新机制（TRSS/Miao 内置 other/update.js 的 update 类，huli-plugins 同款）：
+    // 自动拉取源码、按需安装依赖并按宿主逻辑重启，全程只更新插件本体；
+    // 宿主已自行回复进度与结果，无需再渲染卡片。
+    try {
+      if (await updateViaHost(this.e)) return
+    } catch (err) {
+      logger.warn(`[Mugshot] 宿主更新插件执行失败（${err?.message || err}），回退为直接拉取源码`)
+    }
+    // 回退：直接 git 拉取 main 分支源码覆盖（不装依赖，需重启生效）
     let p
     try {
       p = await checkForUpdate()
@@ -249,6 +260,23 @@ export class Mugshot extends plugin {
     const data = updateCardData("插件更新结果", lines.join("\n"))
     const img = await renderCard(this.e, "update", data)
     return this.#send(img, null, [["更新提示渲染失败", lines.join("\n")]])
+  }
+
+  /**
+   * #群主更新日志：用宿主更新机制展示插件最近提交（所有人可用，huli-plugins 同款）。
+   * 宿主返回的提交记录直接回复；宿主更新插件不可用时渲染错误卡片说明原因。
+   */
+  async updateLog() {
+    try {
+      const log = await updateLogViaHost(this.e)
+      if (log) return this.reply(log)
+      return this.#renderError(
+        "无法读取更新日志",
+        "未找到宿主更新插件（other/update.js），请确认 Yunzai 布局与插件安装位置",
+      )
+    } catch (err) {
+      return this.#renderError("读取更新日志失败", err?.message || String(err))
+    }
   }
 
   // ---------- 内部通用流程 ----------

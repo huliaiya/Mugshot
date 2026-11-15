@@ -193,13 +193,8 @@ class ServerClient {
     return data
   }
 
-  checkServerUpdate() {
-    return this.request("/admin/update_check", { method: "POST", timeoutMs: 30000 })
-  }
-
-  applyServerUpdate() {
-    return this.request("/admin/update", { method: "POST", timeoutMs: 30000 })
-  }
+  // 注意：插件不提供任何"更新服务端"的调用——服务端更新由其自身的
+  // 定时检查与 GUI"设置"页负责，插件侧只更新插件本体（见 model/updater.js）。
 
   // ---- WebSocket 订阅 ----
 
