@@ -26,12 +26,12 @@
   .cell:nth-child(2) .value { color: {{ backdrop.accents[2] }}; }
   .cell:nth-child(4) .value { color: {{ backdrop.accents[4] }}; }
   .battery-row { display: flex; align-items: center; gap: 14px; }
-  .battery-bar { flex: 1; height: 14px; background: rgba(10,16,30,.65); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
-  .battery-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #22d3ee, #a78bfa); }
-  .battery-fill.hi { background: linear-gradient(90deg, #22d3ee, #3dd598, #a3e635); box-shadow: 0 0 10px rgba(61,213,152,.6); }
-  .battery-fill.mid { background: linear-gradient(90deg, #fbbf24, #fb923c, #f472b6); box-shadow: 0 0 10px rgba(251,146,60,.6); }
-  .battery-fill.lo { background: linear-gradient(90deg, #f43f5e, #fb7185, #fb923c); box-shadow: 0 0 10px rgba(244,63,94,.6); }
-  .battery-fill.unknown { background: repeating-linear-gradient(45deg, rgba(255,255,255,.16) 0 10px, rgba(255,255,255,.06) 10px 20px); }
+  .battery-bar { flex: 1; height: 16px; background: rgba(10,16,30,.65); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.22); box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+  .battery-fill { display: block; height: 100%; min-width: 6px; border-radius: 999px; background-color: #22d3ee; background-image: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .battery-fill.hi { background-color: #22e08a; background-image: linear-gradient(90deg, #00e5ff, #22e08a, #d0f224); box-shadow: 0 0 12px rgba(34,224,138,.7); }
+  .battery-fill.mid { background-color: #fb923c; background-image: linear-gradient(90deg, #ffc400, #ff8a3d, #ff5fa2); box-shadow: 0 0 12px rgba(255,138,61,.7); }
+  .battery-fill.lo { background-color: #ff2d55; background-image: linear-gradient(90deg, #ff2d55, #ff6b81, #ff9f43); box-shadow: 0 0 12px rgba(255,45,85,.7); }
+  .battery-fill.unknown { background-color: #4f46e5; background-image: repeating-linear-gradient(45deg, rgba(34,211,238,.65) 0 9px, rgba(167,139,250,.5) 9px 18px); }
   .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
 </style>
 </head>
