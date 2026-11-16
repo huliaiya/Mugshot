@@ -76,7 +76,7 @@ const schemas = [
   {
     field: FIELD_ALIAS,
     label: "指令别名",
-    bottomHelpMessage: "默认 群主：所有指令为 #群主查看 等；改成 huli 后变成 #huli查看。#群主帮助 固定不变。保存后立即生效，无需重启。",
+    bottomHelpMessage: "默认 群主：所有指令为 #群主查看 等；改成 huli 后查询指令变成 #huli查看，但 #群主帮助 与 #群主更新 固定不变。保存后立即生效，无需重启。",
     component: "Input",
     componentProps: {
       placeholder: "群主",

@@ -27,7 +27,7 @@ import {
   reportTimestamp,
 } from "./model/format.js"
 import { getBackdrop } from "./model/backdrop.js"
-import { FIXED_HELP_PREFIX, commandAlias, cmd } from "./model/alias.js"
+import { FIXED_HELP_PREFIX, commandAlias, cmd, isFixedAction } from "./model/alias.js"
 import { checkForUpdate, updatePlugin, silentCheck, updateViaHost, updateLogViaHost } from "./model/updater.js"
 
 /* global logger, Bot */
@@ -57,7 +57,7 @@ export class Mugshot extends plugin {
       ],
       rule: [
         // 统一入口：前缀由配置 alias 决定（默认 群主），改别名无需重启；
-        // 帮助固定 #群主帮助，其余指令必须使用当前别名。
+        // 帮助与更新固定 #群主，其余指令必须使用当前别名。
         {
           reg: "^#[^\\s]+?(用过什么|更新日志|在干嘛|详情|查看|列表|状态|更新|帮助)[\\s\\S]*$",
           fnc: "dispatch",
@@ -101,10 +101,12 @@ export class Mugshot extends plugin {
     const action = m[2]
     const arg = (m[3] || "").trim()
 
-    // 帮助固定 #群主帮助，不随别名变化
-    if (action === "帮助") {
+    // 帮助与更新固定 #群主，不随别名变化
+    if (isFixedAction(action)) {
       if (prefix !== FIXED_HELP_PREFIX) return false
-      return this.help()
+      if (action === "帮助") return this.help()
+      if (!this.e.isMaster) return this.#renderError("权限不足", "仅 Master 可使用 #群主更新")
+      return this.pluginUpdate()
     }
     if (prefix !== commandAlias()) return false
 
@@ -116,9 +118,6 @@ export class Mugshot extends plugin {
       case "详情": return this.deviceDetail()
       case "用过什么": return this.usageStats()
       case "状态": return this.serverStatus()
-      case "更新":
-        if (!this.e.isMaster) return this.#renderError("权限不足", `仅 Master 可使用 ${cmd("更新")}`)
-        return this.pluginUpdate()
       case "更新日志": return this.updateLog()
       default: return false
     }
