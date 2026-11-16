@@ -27,52 +27,7 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         }
         try {
             val snapshot = StatusCollector.collect(applicationContext)
-            val payload = JSONObject().apply {
-                put("screen_on", snapshot.screenOn)
-                put("foreground_app", snapshot.foregroundApp)
-                put("foreground_package", snapshot.foregroundPackage)
-                // 分屏/小窗等多窗口场景：2 个以上应用同时可见时一并列出
-                if (snapshot.foregroundApps.size >= 2) {
-                    val arr = org.json.JSONArray()
-                    for ((label, pkg) in snapshot.foregroundApps) {
-                        arr.put(org.json.JSONObject().put("app", label).put("package", pkg))
-                    }
-                    put("foreground_apps", arr)
-                }
-                // 最近 24 小时使用时长（全部应用）：由服务端随设备快照存储，插件 #群主用过什么 展示
-                if (snapshot.usage24h.isNotEmpty()) {
-                    val usageArr = org.json.JSONArray()
-                    for (u in snapshot.usage24h) {
-                        usageArr.put(
-                            org.json.JSONObject()
-                                .put("pkg", u.pkg)
-                                .put("app", u.app)
-                                .put("min", u.min)
-                                .put("count", u.count),
-                        )
-                    }
-                    put("usage_24h", usageArr)
-                }
-                if (snapshot.foregroundActivity.isNotBlank()) {
-                    put("foreground_activity", snapshot.foregroundActivity)
-                }
-                if (snapshot.backgroundApps.isNotEmpty()) {
-                    val bgArr = org.json.JSONArray()
-                    for ((label, pkg) in snapshot.backgroundApps) {
-                        bgArr.put(org.json.JSONObject().put("app", label).put("package", pkg))
-                    }
-                    put("background_apps", bgArr)
-                }
-                if (snapshot.batteryTempC > 0) put("battery_temp_c", snapshot.batteryTempC)
-                put("battery_level", snapshot.batteryLevel)
-                put("battery_status", snapshot.batteryStatus)
-                put("charging", snapshot.charging)
-                put("charging_source", snapshot.chargingSource)
-                put("network_type", snapshot.networkType)
-                put("network_detail", snapshot.networkDetail)
-                put("device_model", snapshot.deviceModel)
-                put("app_version", snapshot.appVersion)
-            }
+            val payload = ReportPayloadBuilder.build(applicationContext, snapshot)
             val body = JSONObject().apply {
                 put("type", "report")
                 put("device_id", Prefs.deviceId)

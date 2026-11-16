@@ -91,6 +91,45 @@
   <div class="status-note warn">该设备尚未上报过数据，请确认 App 已运行并联网。</div>
   {{ /if }}
 
+  {{ if watch_on }}
+  <div class="grid">
+    <div class="cell">
+      <div class="label">手表 {{ watch_name }}</div>
+      <div class="battery-row">
+        <div class="battery-bar"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div>
+        <div class="value">{{ watch_battery_text }}</div>
+      </div>
+    </div>
+    <div class="cell">
+      <div class="label">手表状态</div>
+      <div class="value">{{ watch_state_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">今日步数</div>
+      <div class="value">{{ watch_steps_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">心率</div>
+      <div class="value">{{ watch_heart_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">睡眠</div>
+      <div class="value">{{ watch_sleep_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">血压 / 血氧</div>
+      <div class="value">{{ watch_bp_text }} · {{ watch_spo2_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">消耗 / 距离</div>
+      <div class="value">{{ watch_kcal_text }} · {{ watch_distance_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">手表同步</div>
+      <div class="value">{{ watch_sync_text }}</div>
+    </div>
+  </div>
+  {{ /if }}
   <div class="meta">
     <span>上报时间：{{ report_time }}{{ if last_report_ago }}（{{ last_report_ago }}）{{ /if }}</span>
     <span>设备 ID：{{ device_id_short }}</span>

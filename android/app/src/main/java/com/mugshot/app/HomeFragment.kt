@@ -1,5 +1,6 @@
 package com.mugshot.app
 
+import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -8,8 +9,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +22,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.mugshot.app.watch.WatchManager
 import rikka.shizuku.Shizuku
 
 /**
@@ -38,6 +42,14 @@ class HomeFragment : Fragment(), WsClient.Listener {
     private lateinit var probeBtn: Button
     private lateinit var shizukuStatus: TextView
     private lateinit var shizukuBtn: Button
+    private lateinit var watchSwitch: Switch
+    private lateinit var watchTitle: TextView
+    private lateinit var watchStatus: TextView
+    private lateinit var watchBody: LinearLayout
+
+    private val watchListener: (WatchManager.Snapshot) -> Unit = { s ->
+        if (view != null) renderWatch(s)
+    }
 
     // Shizuku 授权结果回调（授权成功后立刻应用后台保活命令）
     private val shizukuPermListener = Shizuku.OnRequestPermissionResultListener { code, result ->
@@ -78,6 +90,25 @@ class HomeFragment : Fragment(), WsClient.Listener {
         shizukuStatus = view.findViewById(R.id.shizuku_status)
         shizukuBtn = view.findViewById(R.id.btn_shizuku)
         shizukuBtn.setOnClickListener { onShizukuClicked() }
+
+        watchSwitch = view.findViewById(R.id.watch_switch)
+        watchTitle = view.findViewById(R.id.watch_title)
+        watchStatus = view.findViewById(R.id.watch_status)
+        watchBody = view.findViewById(R.id.watch_body)
+        watchSwitch.isChecked = Prefs.watchEnabled
+        watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
+        view.findViewById<Button>(R.id.btn_watch_connect).setOnClickListener {
+            if (Prefs.watchEnabled) WatchManager.refreshNow() else setWatchEnabled(true)
+        }
+        view.findViewById<Button>(R.id.btn_watch_sync).setOnClickListener {
+            if (Prefs.watchEnabled) {
+                WatchManager.refreshNow()
+                Toast.makeText(requireContext(), R.string.btn_watch_sync, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), R.string.watch_need_enable, Toast.LENGTH_SHORT).show()
+            }
+        }
+        WatchManager.addListener(watchListener)
         Shizuku.addRequestPermissionResultListener(shizukuPermListener)
 
         probeBtn.setOnClickListener { probeConnection() }
@@ -118,6 +149,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
 
     override fun onDestroyView() {
         Shizuku.removeRequestPermissionResultListener(shizukuPermListener)
+        WatchManager.removeListener(watchListener)
         super.onDestroyView()
     }
 
@@ -289,11 +321,111 @@ class HomeFragment : Fragment(), WsClient.Listener {
         }
     }
 
+
+    // ---- 蓝牙手表 ----
+
+    private fun setWatchEnabled(on: Boolean) {
+        if (!on) {
+            WatchManager.setEnabled(false)
+            return
+        }
+        if (!Prefs.consent) {
+            watchSwitch.isChecked = false
+            Toast.makeText(requireContext(), R.string.watch_need_consent, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val missing = missingWatchPermissions()
+        if (missing.isNotEmpty()) {
+            requestPermissions(missing.toTypedArray(), REQ_WATCH)
+            return
+        }
+        WatchManager.setEnabled(true)
+    }
+
+    private fun missingWatchPermissions(): List<String> {
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        return needed.filter {
+            ContextCompat.checkSelfPermission(requireContext(), it) != PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (requestCode == REQ_WATCH) {
+            val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            if (granted) {
+                WatchManager.setEnabled(true)
+            } else {
+                watchSwitch.isChecked = false
+                Toast.makeText(requireContext(), R.string.watch_perm_denied, Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    private fun renderWatch(s: WatchManager.Snapshot) {
+        watchSwitch.setOnCheckedChangeListener(null)
+        watchSwitch.isChecked = s.enabled
+        watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
+        watchTitle.text = if (s.connected && s.name.isNotBlank()) s.name else getString(R.string.watch_title_off)
+        watchStatus.text = when {
+            !s.enabled -> getString(R.string.watch_status_off)
+            s.state == WatchManager.STATE_SCANNING -> getString(R.string.watch_status_scanning)
+            s.state == WatchManager.STATE_CONNECTING -> getString(R.string.watch_status_connecting)
+            s.state == WatchManager.STATE_BINDING -> s.detail.ifBlank { getString(R.string.watch_status_connecting) }
+            s.connected -> getString(R.string.watch_status_connected)
+            else -> s.detail.ifBlank { getString(R.string.watch_status_off) }
+        }
+        watchBody.visibility = if (s.enabled) View.VISIBLE else View.GONE
+        setWatchRow(R.id.row_watch_battery, R.string.label_watch_battery, if (s.battery >= 0) "${s.battery}%" else DASH)
+        setWatchRow(
+            R.id.row_watch_steps,
+            R.string.label_watch_steps,
+            if (s.steps >= 0) getString(R.string.watch_steps_value, s.steps, s.kcal.coerceAtLeast(0), s.distanceM.coerceAtLeast(0)) else DASH,
+        )
+        setWatchRow(R.id.row_watch_heart, R.string.label_watch_heart, if (s.heartRate > 0) "$s.heartRate bpm" else DASH)
+        setWatchRow(R.id.row_watch_sleep, R.string.label_watch_sleep, sleepText(s.sleepMin))
+        setWatchRow(R.id.row_watch_spo2, R.string.label_watch_spo2, if (s.spo2 > 0) "${s.spo2}%" else DASH)
+        setWatchRow(
+            R.id.row_watch_bp,
+            R.string.label_watch_bp,
+            if (s.bpSys > 0 && s.bpDia > 0) "${s.bpSys}/${s.bpDia} mmHg" else DASH,
+        )
+        setWatchRow(R.id.row_watch_firmware, R.string.label_watch_firmware, s.firmware.ifBlank { DASH })
+        setWatchRow(
+            R.id.row_watch_sync,
+            R.string.label_watch_sync,
+            if (s.updatedAt > 0) timeFmt.format(Date(s.updatedAt)) else getString(R.string.value_never),
+        )
+    }
+
+    private fun setWatchRow(rowId: Int, labelRes: Int, value: String) {
+        val row = view?.findViewById<LinearLayout>(rowId) ?: return
+        row.findViewById<TextView>(R.id.info_label).setText(labelRes)
+        row.findViewById<TextView>(R.id.info_value).text = value
+    }
+
+    private fun sleepText(min: Int): String {
+        if (min <= 0) return DASH
+        val h = min / 60
+        val m = min % 60
+        return if (h > 0) "$h 小时 $m 分" else "$m 分"
+    }
+
+    private companion object {
+        const val REQ_WATCH = 2101
+        const val DASH = "—"
+    }
+
     // ---- 连接探测（服务未运行时） ----
 
     private fun probeConnection() {
         if (!Prefs.isConfigured()) {
-            Toast.makeText(requireContext(), R.string.toast_need_config, Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), R.string.watch_need_consent, Toast.LENGTH_SHORT).show()
             (activity as? MainActivity)?.openSettings()
             return
         }

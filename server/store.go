@@ -80,6 +80,29 @@ type ForegroundAppInfo struct {
 	Package string `json:"package,omitempty"`
 }
 
+// WatchInfo is the paired HryFine watch snapshot bundled with a report when the
+// user enabled watch sync. Values are read-only readings; -1 / empty means the
+// watch did not report that field during the last sync.
+type WatchInfo struct {
+	Connected     bool   `json:"connected"`
+	Name          string `json:"name,omitempty"`
+	Battery       int    `json:"battery,omitempty"`
+	Firmware      string `json:"firmware,omitempty"`
+	Project       string `json:"project,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	Features      string `json:"features,omitempty"`
+	Steps         int    `json:"steps,omitempty"`
+	DistanceM     int    `json:"distance_m,omitempty"`
+	Kcal          int    `json:"kcal,omitempty"`
+	HeartRate     int    `json:"heart_rate,omitempty"`
+	BloodPressure string `json:"blood_pressure,omitempty"`
+	SpO2          int    `json:"spo2,omitempty"`
+	SleepMin      int    `json:"sleep_min,omitempty"`
+	SedentaryOn   *bool  `json:"sedentary_on,omitempty"`
+	RaiseWristOn  *bool  `json:"raise_wrist_on,omitempty"`
+	UpdatedAt     int64  `json:"updated_at,omitempty"`
+}
+
 // ReportPayload is the minimal device status snapshot. Fields are collected
 // automatically by the Android app; nothing beyond what the feature needs is
 // ever uploaded (no user input, no screen text, no clipboard).
@@ -100,6 +123,7 @@ type ReportPayload struct {
 	NetworkDetail      string              `json:"network_detail,omitempty"`
 	DeviceModel        string              `json:"device_model,omitempty"`
 	AppVersion         string              `json:"app_version,omitempty"`
+	Watch              *WatchInfo          `json:"watch,omitempty"` // 已开启的手表同步数据
 }
 
 // Report is one status submission.

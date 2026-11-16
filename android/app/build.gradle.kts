@@ -12,11 +12,11 @@ android {
         minSdk = 26
         targetSdk = 35
         // versionCode 每次发版都要递增：与已安装版本相同时系统会拒绝覆盖安装
-        versionCode = 30
+        versionCode = 31
 
         // 展示版本号固定为发版语义版本（v1.1.1 起与 tag 对齐），构建哈希放 BuildConfig.GIT_HASH
         val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"
-        versionName = "1.1.12"
+        versionName = "1.2.0"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
 
         // 更新检查用的发布版本号（tag 构建传 -PgitTag=<x.y.z>，非 tag 构建为 0.0.0）
@@ -70,4 +70,5 @@ dependencies {
     // Shizuku：可选增强（自动授权使用情况权限、后台保活命令），未安装时全部能力自动降级
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
+    testImplementation("junit:junit:4.13.2")
 }

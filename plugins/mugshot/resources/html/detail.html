@@ -63,6 +63,21 @@
   </div>
   {{ /if }}
 
+  {{ if watch_on }}
+  <div class="section">
+    <h3>手表 {{ watch_name }}</h3>
+    <div class="row"><span class="k">连接状态</span><span class="v">{{ watch_state_text }}</span></div>
+    <div class="row"><span class="k">电量</span><span class="v">{{ watch_battery_text }}</span></div>
+    <div class="row"><span class="k">今日步数</span><span class="v">{{ watch_steps_text }}</span></div>
+    <div class="row"><span class="k">心率 / 血氧</span><span class="v">{{ watch_heart_text }} · {{ watch_spo2_text }}</span></div>
+    <div class="row"><span class="k">血压</span><span class="v">{{ watch_bp_text }}</span></div>
+    <div class="row"><span class="k">睡眠</span><span class="v">{{ watch_sleep_text }}</span></div>
+    <div class="row"><span class="k">消耗 / 距离</span><span class="v">{{ watch_kcal_text }} · {{ watch_distance_text }}</span></div>
+    <div class="row"><span class="k">固件</span><span class="v">{{ watch_firmware_text }}</span></div>
+    <div class="row"><span class="k">能力</span><span class="v">{{ watch_features_text }}</span></div>
+    <div class="row"><span class="k">同步时间</span><span class="v">{{ watch_sync_text }}</span></div>
+  </div>
+  {{ /if }}
   {{ if recent && recent.length }}
   <div class="section">
     <h3>最近上报记录</h3>

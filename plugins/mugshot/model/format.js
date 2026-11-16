@@ -154,6 +154,50 @@ export function deviceView(d) {
   }
 }
 
+/** 手表 payload -> 卡片字段；未开启/未连接时字段留空，由模板决定是否展示 */
+export function watchView(p) {
+  const w = p?.watch
+  if (!w) return { watch_on: false, watch_connected: false, watch_name: "", watch_line: "" }
+  const connected = !!w.connected
+  const battery = Number(w.battery)
+  const hasBattery = Number.isFinite(battery) && battery >= 0
+  const num = v => {
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  const steps = num(w.steps)
+  const kcal = num(w.kcal)
+  const dist = num(w.distance_m)
+  const hr = num(w.heart_rate)
+  const spo2 = num(w.spo2)
+  const sleep = num(w.sleep_min)
+  const line = [
+    hasBattery ? `${Math.round(battery)}%` : "",
+    steps !== null ? `${steps} 步` : "",
+    hr ? `${hr} bpm` : "",
+  ].filter(Boolean).join(" · ")
+  return {
+    watch_on: true,
+    watch_connected: connected,
+    watch_name: w.name || "HryFine 手表",
+    watch_state_text: connected ? "已连接" : "未连接",
+    watch_battery_text: hasBattery ? `${Math.round(battery)}%` : "-",
+    watch_battery_class: hasBattery ? batteryClass(battery) : "unknown",
+    watch_battery_width: hasBattery ? Math.min(100, Math.max(4, Math.round(battery))) : 100,
+    watch_steps_text: steps !== null ? `${steps} 步` : "-",
+    watch_kcal_text: kcal !== null ? `${kcal} 千卡` : "-",
+    watch_distance_text: dist !== null ? (dist >= 1000 ? `${(dist / 1000).toFixed(1)} 公里` : `${dist} 米`) : "-",
+    watch_heart_text: hr ? `${hr} bpm` : "-",
+    watch_sleep_text: sleep ? formatMinutes(sleep) : "-",
+    watch_bp_text: w.blood_pressure || "-",
+    watch_spo2_text: spo2 ? `${spo2}%` : "-",
+    watch_firmware_text: [w.firmware, w.project].filter(Boolean).join(" / ") || "-",
+    watch_features_text: w.features || "-",
+    watch_sync_text: w.updated_at ? formatShortTime(w.updated_at) : "-",
+    watch_line: line || (connected ? "已连接" : "未连接"),
+  }
+}
+
 /** 上报 payload -> 状态卡字段 */
 export function basicView(p) {
   const payload = p || {}
@@ -183,6 +227,7 @@ export function statusView(resp) {
   const view = {
     ...deviceView(d),
     ...basicView(r?.payload),
+    ...watchView(r?.payload),
     report_time: formatShortTime(Number(r?.timestamp) || Number(r?.at) || reportTimestamp(d)),
     source_text: meta.text,
     source_class: meta.cls,
@@ -220,6 +265,7 @@ export function allStatusView(d) {
   const usageMax = usage.reduce((m, u) => Math.max(m, Number(u?.min) || 0), 1)
   return {
     ...deviceView(d),
+    ...watchView(p),
     appText: foregroundText(p),
     batteryText: level === null ? "无数据（本机读不到电量）" : `${level}%`,
     battery_class: batteryClass(level),

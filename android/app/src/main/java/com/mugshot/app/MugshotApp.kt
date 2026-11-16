@@ -20,6 +20,7 @@ class MugshotApp : Application() {
                 " ${android.os.Build.MODEL ?: ""}"
         )
         applyTheme()
+        com.mugshot.app.watch.WatchManager.init(this)
     }
 
     /** 未捕获异常先落运行日志再走系统崩溃流程：闪退后可在日志页回溯现场 */

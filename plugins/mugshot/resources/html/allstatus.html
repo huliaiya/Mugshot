@@ -70,6 +70,7 @@
         <div class="row"><span class="k">充电</span><span class="v">{{ d.chargingText }}</span></div>
         <div class="row"><span class="k">温度</span><span class="v">{{ d.tempText }}</span></div>
         <div class="row wide"><span class="k">后台应用</span><span class="v">{{ d.backgroundText || "-" }}</span></div>
+        {{ if d.watch_on }}<div class="row"><span class="k">手表</span><span class="v">{{ d.watch_name }} · {{ d.watch_line }}</span></div>{{ /if }}
         <div class="row"><span class="k">最近上报</span><span class="v">{{ d.last_report_short }}</span></div>
       </div>
       {{ if d.usage.length }}

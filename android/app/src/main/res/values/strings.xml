@@ -113,6 +113,27 @@
     <string name="value_net_wifi">Wi-Fi</string>
     <string name="value_net_mobile">移动数据</string>
     <string name="value_never">尚未上报</string>
+    <string name="home_section_watch">蓝牙手表</string>
+    <string name="watch_title_off">手表数据</string>
+    <string name="watch_title_on">%1$s</string>
+    <string name="watch_status_off">开启后连接 HryFine 手表，读取步数、心率、血氧与睡眠</string>
+    <string name="watch_status_scanning">正在扫描附近手表…</string>
+    <string name="watch_status_connecting">正在连接手表…</string>
+    <string name="watch_status_connected">已连接，数据随上报一起发送</string>
+    <string name="label_watch_battery">手表电量</string>
+    <string name="label_watch_steps">今日步数</string>
+    <string name="watch_steps_value">%1$d 步 · %2$d 千卡 · %3$d 米</string>
+    <string name="label_watch_heart">心率</string>
+    <string name="label_watch_sleep">睡眠</string>
+    <string name="label_watch_spo2">血氧</string>
+    <string name="label_watch_bp">血压</string>
+    <string name="label_watch_firmware">固件</string>
+    <string name="label_watch_sync">手表同步</string>
+    <string name="btn_watch_connect">扫描连接</string>
+    <string name="btn_watch_sync">立即同步</string>
+    <string name="watch_need_enable">请先开启手表开关</string>
+    <string name="watch_perm_denied">蓝牙权限被拒绝，手表功能无法使用</string>
+    <string name="watch_need_consent">请先同意隐私政策并完成服务器配置</string>
     <string name="home_detail_service">后台服务运行中</string>
     <string name="home_detail_offline">服务未运行，点击"重新测试连接"检查配置</string>
 

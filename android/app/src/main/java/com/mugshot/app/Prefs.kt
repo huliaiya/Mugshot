@@ -19,6 +19,10 @@ object Prefs {
     const val KEY_LAST_REPORT_TS = "last_report_ts"
     const val KEY_THEME_MODE = "theme_mode"
     const val KEY_LOG_AUTOSCROLL = "log_autoscroll"
+    const val KEY_WATCH_ENABLED = "watch_enabled"
+    const val KEY_WATCH_ADDRESS = "watch_address"
+    const val KEY_WATCH_NAME = "watch_name"
+    const val KEY_WATCH_USER_ID = "watch_user_id"
 
     /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
     const val THEME_FOLLOW_SYSTEM = 0
@@ -64,6 +68,32 @@ object Prefs {
     var reportIntervalSec: Int
         get() = sp(MugshotApp.instance).getInt(KEY_REPORT_INTERVAL, 300)
         set(v) = sp(MugshotApp.instance).edit().putInt(KEY_REPORT_INTERVAL, v.coerceIn(30, 3600)).apply()
+
+    /** 是否启用蓝牙手表连接 */
+    var watchEnabled: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_ENABLED, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_ENABLED, v).apply()
+
+    /** 上次连接的手表 MAC，用于启动时直接回连 */
+    var watchAddress: String
+        get() = sp(MugshotApp.instance).getString(KEY_WATCH_ADDRESS, "") ?: ""
+        set(v) = sp(MugshotApp.instance).edit().putString(KEY_WATCH_ADDRESS, v.trim()).apply()
+
+    var watchName: String
+        get() = sp(MugshotApp.instance).getString(KEY_WATCH_NAME, "") ?: ""
+        set(v) = sp(MugshotApp.instance).edit().putString(KEY_WATCH_NAME, v.trim()).apply()
+
+    /** 8 位 ASCII 绑定 ID：手表记住该 ID，必须持久化且不要频繁更换 */
+    var watchUserId: String
+        get() {
+            val sp = sp(MugshotApp.instance)
+            val saved = sp.getString(KEY_WATCH_USER_ID, null)
+            if (!saved.isNullOrEmpty() && saved.length == 8) return saved
+            val id = "MG" + (100000..999999).random()
+            sp.edit().putString(KEY_WATCH_USER_ID, id).apply()
+            return id
+        }
+        set(v) = sp(MugshotApp.instance).edit().putString(KEY_WATCH_USER_ID, v.take(8)).apply()
 
     var lastReportTs: Long
         get() = sp(MugshotApp.instance).getLong(KEY_LAST_REPORT_TS, 0)

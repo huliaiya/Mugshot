@@ -222,51 +222,7 @@ class WsClient(
 
     private fun sendReport(webSocket: WebSocket, requestId: String?, s: StatusCollector.Snapshot) {
         val t0 = System.currentTimeMillis()
-        val payload = JSONObject().apply {
-            put("screen_on", s.screenOn)
-            put("foreground_app", s.foregroundApp)
-            put("foreground_package", s.foregroundPackage)
-            // 分屏/小窗等多窗口场景：2 个以上应用同时可见时一并列出
-            if (s.foregroundApps.size >= 2) {
-                val arr = org.json.JSONArray()
-                for ((label, pkg) in s.foregroundApps) {
-                    arr.put(org.json.JSONObject().put("app", label).put("package", pkg))
-                }
-                put("foreground_apps", arr)
-            }
-            // 最近 24 小时使用时长（全部应用）：由服务端随设备快照存储，插件 #群主用过什么 展示
-            if (s.usage24h.isNotEmpty()) {
-                val usageArr = org.json.JSONArray()
-                for (u in s.usage24h) {
-                    usageArr.put(
-                        org.json.JSONObject()
-                            .put("pkg", u.pkg)
-                            .put("app", u.app)
-                            .put("min", u.min)
-                            .put("count", u.count),
-                    )
-                }
-                put("usage_24h", usageArr)
-            }
-            if (s.foregroundActivity.isNotBlank()) put("foreground_activity", s.foregroundActivity)
-            // 后台应用：最近用过但当前不在前台的（最多 5 个），插件展示"后台"行
-            if (s.backgroundApps.isNotEmpty()) {
-                val bgArr = org.json.JSONArray()
-                for ((label, pkg) in s.backgroundApps) {
-                    bgArr.put(org.json.JSONObject().put("app", label).put("package", pkg))
-                }
-                put("background_apps", bgArr)
-            }
-            if (s.batteryTempC > 0) put("battery_temp_c", s.batteryTempC)
-            put("battery_level", s.batteryLevel)
-            put("battery_status", s.batteryStatus)
-            put("charging", s.charging)
-            put("charging_source", s.chargingSource)
-            put("network_type", s.networkType)
-            put("network_detail", s.networkDetail)
-            put("device_model", s.deviceModel)
-            put("app_version", s.appVersion)
-        }
+        val payload = ReportPayloadBuilder.build(context, s)
         val report = JSONObject().apply {
             put("type", "report")
             if (!requestId.isNullOrEmpty()) put("request_id", requestId)

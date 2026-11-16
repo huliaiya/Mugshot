@@ -80,6 +80,7 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 
 说明：
 
+- App 开启蓝牙手表后，`#群主查看`、`#群主详情`、`#群主在干嘛` 的卡片会自动附带手表区块（电量、步数、心率、血压、血氧、睡眠、固件与同步时间）
 - `#群主在干嘛` 与 `#群主列表` 的设备卡片在 QQBot 适配器下附带设备按钮，点击即查看对应单台
 - 所有回复均优先渲染为图片；QQBot 适配器下附带可点击按钮，其他协议端自动降级为纯图片
 - 渲染走三级渲染链：`e.runtime.render` → 宿主 `lib/puppeteer/puppeteer.js`（huli-plugins 同款，绕开 runtime 依赖）→ `Bot.renderer`；宿主能渲染其他插件的图即可渲染本插件图
