@@ -47,6 +47,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
     private lateinit var watchTitle: TextView
     private lateinit var watchStatus: TextView
     private lateinit var watchBody: LinearLayout
+    private lateinit var watchUnbind: Button
 
     private val watchListener: (WatchManager.Snapshot) -> Unit = { s ->
         if (view != null) renderWatch(s)
@@ -96,6 +97,8 @@ class HomeFragment : Fragment(), WsClient.Listener {
         watchTitle = view.findViewById(R.id.watch_title)
         watchStatus = view.findViewById(R.id.watch_status)
         watchBody = view.findViewById(R.id.watch_body)
+        watchUnbind = view.findViewById(R.id.btn_watch_unbind)
+        watchUnbind.setOnClickListener { confirmUnbind() }
         watchSwitch.isChecked = Prefs.watchEnabled
         watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
         view.findViewById<Button>(R.id.btn_watch_connect).setOnClickListener {
@@ -385,6 +388,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
             else -> s.detail.ifBlank { getString(R.string.watch_status_off) }
         }
         watchBody.visibility = if (s.enabled) View.VISIBLE else View.GONE
+        watchUnbind.visibility = if (s.enabled && (s.address.isNotBlank() || s.connected)) View.VISIBLE else View.GONE
         setWatchRow(R.id.row_watch_battery, R.string.label_watch_battery, if (s.battery >= 0) "${s.battery}%" else DASH)
         setWatchRow(
             R.id.row_watch_steps,
@@ -405,6 +409,18 @@ class HomeFragment : Fragment(), WsClient.Listener {
             R.string.label_watch_sync,
             if (s.updatedAt > 0) timeFmt.format(Date(s.updatedAt)) else getString(R.string.value_never),
         )
+    }
+
+    private fun confirmUnbind() {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.watch_unbind_title)
+            .setMessage(R.string.watch_unbind_msg)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                WatchManager.unbind()
+                Toast.makeText(requireContext(), R.string.watch_unbind_done, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun measure(action: () -> Unit) {

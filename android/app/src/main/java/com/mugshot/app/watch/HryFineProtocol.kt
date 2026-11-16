@@ -30,6 +30,7 @@ object HryFineProtocol {
     const val GROUP_REQUEST = 0x0A
     const val GROUP_BAND_INFO = 0x13
     const val GROUP_BIND = 0x03
+    const val GROUP_UNBIND = 0x04
     const val GROUP_BUTTONS = 0x0C
     const val GROUP_SETTINGS = 0x09
     const val GROUP_DEVICE_INFO = 0xF3

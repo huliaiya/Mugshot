@@ -218,6 +218,16 @@
                     android:text="@string/btn_watch_sync"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
             </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_watch_unbind"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/btn_watch_unbind"
+                android:textColor="@color/red"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 权限面板 -->

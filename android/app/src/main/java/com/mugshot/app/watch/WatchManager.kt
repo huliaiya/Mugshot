@@ -66,10 +66,11 @@ object WatchManager {
 
     private const val SCAN_TIMEOUT_MS = 15000L
     private const val CHUNK_SIZE = 20
-    private const val WRITE_GAP_MS = 20L
+    private const val WRITE_RETRY_MS = 80L
+    private const val WRITE_TIMEOUT_MS = 400L
     private const val CONNECT_TIMEOUT_MS = 15000L
     private const val CANDIDATE_PUBLISH_MS = 400L
-    private const val HEALTH_WINDOW_MS = 9000L
+    private const val HEALTH_WINDOW_MS = 20000L
     private const val STRATEGY_CHALLENGE = "challenge"
     private const val STRATEGY_DEVICE_INFO = "deviceInfo"
     private const val STRATEGY_DIRECT = "direct"
@@ -109,6 +110,8 @@ object WatchManager {
     private var probeIdx = 0
     private var reconnectIdx = 0
     private var suppressReconnect = false
+    private var quickDrops = 0
+    private var connectedAt = 0L
     private var userStopped = false
     private var readQueue = ArrayDeque<BluetoothGattCharacteristic>()
     private var readStarted = false
@@ -135,8 +138,14 @@ object WatchManager {
         }
         val item = writeQueue.removeFirstOrNull() ?: return
         writeBusy = true
-        writeBytes(g, ch, item.first, item.second)
-        main.postDelayed(writeTick, WRITE_GAP_MS)
+        if (!writeBytes(g, ch, item.first, item.second)) {
+            // 上一包还没写完，GATT 会拒绝新写入：放回队首，稍后重试，避免丢帧
+            writeQueue.addFirst(item)
+            main.postDelayed(writeTick, WRITE_RETRY_MS)
+            return
+        }
+        // 正常情况等 onCharacteristicWrite 回调释放；部分设备不回回调，用超时兜底
+        main.postDelayed(writeTick, WRITE_TIMEOUT_MS)
     }
 
     private fun failAndRetry(message: String) {
@@ -445,15 +454,19 @@ object WatchManager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 reconnectIdx = 0
                 LogStore.log("watch", "GATT 已连接，发现服务")
-                try {
-                    g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                } catch (_: Exception) {
-                }
+                connectedAt = System.currentTimeMillis()
                 g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                LogStore.log("watch", "手表连接断开（status=$status）")
+                val lived = if (connectedAt > 0) System.currentTimeMillis() - connectedAt else Long.MAX_VALUE
+                connectedAt = 0
+                quickDrops = if (lived < 4000) quickDrops + 1 else 0
+                LogStore.log("watch", "手表连接断开（status=$status，持续 ${lived}ms，连续快速断开 $quickDrops 次）")
                 val fatal = suppressReconnect
                 suppressReconnect = false
+                if (quickDrops >= 3) {
+                    // 连续被手表断开：放慢重连节奏，避免高频占用蓝牙
+                    reconnectIdx = RECONNECT_DELAYS.lastIndex
+                }
                 // 绑定过程中被手表断链，说明这条登录路径被拒绝，下次换一条
                 if (snap.state == STATE_BINDING && !bound) {
                     probeIdx++
@@ -519,6 +532,13 @@ object WatchManager {
             } else {
                 startReads()
             }
+        }
+
+        override fun onCharacteristicWrite(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
+            if (g !== gatt) return
+            main.removeCallbacks(writeTick)
+            writeBusy = false
+            pumpWrite()
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -606,7 +626,7 @@ object WatchManager {
             LogStore.log("watch", "读取 ${ch.uuid} 失败：" + (e.message ?: "未知错误"))
             false
         }
-        if (started) main.postDelayed(readTimeout, 2500) else main.postDelayed({ readNext() }, 80)
+        if (started) main.postDelayed(readTimeout, 900) else main.postDelayed({ readNext() }, 60)
     }
 
     private fun handleRead(uuid: UUID, value: ByteArray) {
@@ -625,7 +645,7 @@ object WatchManager {
     }
 
     private fun beginSession() {
-        setState(STATE_BINDING, "绑定并同步数据…")
+        setState(STATE_BINDING, "正在绑定，请在手表上确认…")
         val userId = Prefs.watchUserId.toByteArray(Charsets.US_ASCII)
         // 顺序对齐 HryFine：挑战 → 确认 → 设备信息 → 绑定 → 校时 → 设置/健康。
         // 未完成绑定的手表会直接断链，所以校时必须放在绑定之后。
@@ -688,6 +708,38 @@ object WatchManager {
         }
     }
 
+    /** 当前是否已保存手表 */
+    fun hasSavedDevice(): Boolean = Prefs.watchAddress.isNotBlank()
+
+    /** 解除绑定：通知手表解绑、取消系统配对，并清除本地保存的手表 */
+    @SuppressLint("MissingPermission")
+    fun unbind() {
+        val dev = connectedDevice ?: try {
+            Prefs.watchAddress.takeIf { it.isNotBlank() }?.let { adapter()?.getRemoteDevice(it) }
+        } catch (_: Exception) {
+            null
+        }
+        if (snap.state == STATE_CONNECTED) {
+            writeFrame(HryFineProtocol.GROUP_UNBIND, 0x00)
+            LogStore.log("watch", "已向手表发送解绑指令")
+        }
+        suppressReconnect = true
+        connectedAt = 0
+        quickDrops = 0
+        main.postDelayed({
+            try {
+                if (dev != null && dev.bondState != android.bluetooth.BluetoothDevice.BOND_NONE) dev.removeBond()
+            } catch (e: Exception) {
+                LogStore.log("watch", "取消系统配对失败：" + (e.message ?: "未知错误"))
+            }
+            Prefs.watchAddress = ""
+            Prefs.watchName = ""
+            bound = false
+            disconnectGatt()
+            setState(STATE_ERROR, "已解除绑定，可重新扫描选择手表")
+        }, 700)
+    }
+
     /** 触发手表测量：心率 / 血压 / 血氧 */
     fun measureHeartRate() = measure(HryFineProtocol.SUB_MEASURE_HEART)
 
@@ -743,13 +795,14 @@ object WatchManager {
     }
 
     @SuppressLint("MissingPermission")
-    private fun writeBytes(g: BluetoothGatt, ch: BluetoothGattCharacteristic, bytes: ByteArray, label: String) {
-        try {
+    private fun writeBytes(g: BluetoothGatt, ch: BluetoothGattCharacteristic, bytes: ByteArray, label: String): Boolean {
+        return try {
             ch.writeType = writeTypeFor(ch)
             ch.value = bytes
-            if (!g.writeCharacteristic(ch)) LogStore.log("watch", "写入未被接受 $label")
+            g.writeCharacteristic(ch)
         } catch (e: Exception) {
             LogStore.log("watch", "发送指令失败 $label：" + (e.message ?: "未知错误"))
+            false
         }
     }
 
@@ -825,13 +878,22 @@ object WatchManager {
                     LogStore.log("watch", "绑定未确认（isAck=${frame.isAck} status=${frame.status}）")
                 }
             }
+            HryFineProtocol.GROUP_BAND_INFO -> if (!frame.isAck) {
+                LogStore.log("watch", "手表请求系统配对，开始创建绑定")
+                val dev = connectedDevice
+                if (dev != null) {
+                    try {
+                        if (dev.bondState != android.bluetooth.BluetoothDevice.BOND_BONDED) dev.createBond()
+                    } catch (e: Exception) {
+                        LogStore.log("watch", "创建系统配对失败：" + (e.message ?: "未知错误"))
+                    }
+                }
+            }
             HryFineProtocol.GROUP_BUTTONS -> if (!frame.isAck) {
                 when (frame.sub) {
                     HryFineProtocol.SUB_BIND_ACCEPT -> {
                         val first = frame.payload.firstOrNull()?.toInt()?.and(0xFF) == 0x01
                         LogStore.log("watch", "手表同意绑定" + if (first) "（首次绑定）" else "")
-                        // 绑定成功后打开手表的配对开关
-                        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
                         if (!bound) {
                             val wasBinding = snap.state == STATE_BINDING
                             onBindConfirmed(first)
@@ -865,6 +927,8 @@ object WatchManager {
     private fun onBindConfirmed(first: Boolean) {
         bound = true
         LogStore.log("watch", "绑定已确认")
+        // 与官方 App 一致：绑定成功后打开手表配对开关
+        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
         val dev = connectedDevice
         if (dev != null) {
             Prefs.watchAddress = dev.address

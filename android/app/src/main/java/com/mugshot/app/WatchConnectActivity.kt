@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -22,6 +23,7 @@ class WatchConnectActivity : AppCompatActivity() {
 
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
+    private lateinit var unbindButton: Button
     private var finishOnConnect = false
 
     private val listener: (WatchManager.Snapshot) -> Unit = { s -> render(s) }
@@ -32,6 +34,8 @@ class WatchConnectActivity : AppCompatActivity() {
         status = findViewById(R.id.connect_status)
         list = findViewById(R.id.connect_list)
         findViewById<View>(R.id.btn_connect_back).setOnClickListener { finish() }
+        unbindButton = findViewById(R.id.btn_connect_unbind)
+        unbindButton.setOnClickListener { confirmUnbind() }
         findViewById<Button>(R.id.btn_connect_rescan).setOnClickListener {
             startScan(disconnect = WatchManager.snapshot().connected)
         }
@@ -84,11 +88,25 @@ class WatchConnectActivity : AppCompatActivity() {
             s.state == WatchManager.STATE_ERROR -> s.detail.ifBlank { getString(R.string.watch_status_off) }
             else -> getString(R.string.watch_pick_hint)
         }
+        unbindButton.visibility = if (s.connected || s.address.isNotBlank()) View.VISIBLE else View.GONE
         renderList(s)
         if (s.connected && finishOnConnect) {
             setResult(RESULT_OK)
             status.postDelayed({ if (!isFinishing) finish() }, 900)
         }
+    }
+
+    private fun confirmUnbind() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.watch_unbind_title)
+            .setMessage(R.string.watch_unbind_msg)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                finishOnConnect = false
+                WatchManager.unbind()
+                Toast.makeText(this, R.string.watch_unbind_done, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun renderList(s: WatchManager.Snapshot) {
