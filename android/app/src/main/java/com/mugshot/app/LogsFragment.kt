@@ -1,5 +1,8 @@
 package com.mugshot.app
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -8,20 +11,22 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ScrollView
+import android.widget.Toast
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 
 /**
- * 运行日志页：默认"只看本次运行"（服务重启后显示自动从头开始），
- * 可切换到"最近 24 小时"查看文件保留的完整历史（重启不清除日志文件）。
+ * 运行日志页：默认显示"最近 24 小时"的完整记录，可切换到"只看本次运行"
+ * （服务重启后从头显示）。
  * 每次进入页面自动加载最新内容，页面停留期间每 3 秒自动刷新并滚动到底部。
  */
 class LogsFragment : Fragment() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var autoRefresh = false
-    private var showHistory = false
+    private var showHistory = true
     private var lastText: String? = null
+    private var shownText: String = ""
 
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -40,7 +45,18 @@ class LogsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         view.findViewById<Button>(R.id.btn_refresh_log).setOnClickListener { reload() }
         view.findViewById<Button>(R.id.btn_log_mode).setOnClickListener { toggleMode() }
+        view.findViewById<Button>(R.id.btn_log_mode).setText(
+            if (showHistory) R.string.btn_log_current else R.string.btn_log_history
+        )
+        view.findViewById<Button>(R.id.btn_copy_log).setOnClickListener { copyLog() }
         reload()
+    }
+
+    private fun copyLog() {
+        val ctx = context ?: return
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText("mugshot-log", shownText))
+        Toast.makeText(ctx, R.string.log_copied, Toast.LENGTH_SHORT).show()
     }
 
     override fun onResume() {
@@ -80,6 +96,7 @@ class LogsFragment : Fragment() {
         // 内容不变时跳过重绘，减少刷新抖动
         if (text == lastText) return
         lastText = text
+        shownText = text
         val prevY = scroll.scrollY
         tv.text = text
         scroll.post {

@@ -114,9 +114,12 @@ class ReportService : Service(), WsClient.Listener {
             stopSelf()
             return START_NOT_STICKY
         }
-        LogStore.markRestart(
-            if (intent == null) "启动（系统重建，START_STICKY）" else "启动（第 $startId 次）"
-        )
+        val alreadyRunning = isRunning
+        if (!alreadyRunning) {
+            LogStore.markRestart(
+                if (intent == null) "启动（系统重建，START_STICKY）" else "启动（第 $startId 次）"
+            )
+        }
         val notif = buildNotification(getString(R.string.service_connecting))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceCompat.startForeground(
@@ -131,6 +134,7 @@ class ReportService : Service(), WsClient.Listener {
         scheduleWatchdog()
         applyShizukuOptimizationsOnce()
 
+        if (alreadyRunning && wsClient != null) return START_STICKY
         wsClient?.stop()
         wsClient = WsClient(applicationContext, this).also { it.start() }
         scheduleFallbackWork()

@@ -48,7 +48,10 @@ object LogStore {
         val line = fmt.format(Date()) + " " + tag + ": " + msg
         synchronized(lock) {
             lines.addLast(line)
-            while (lines.size > MAX_LINES) lines.removeFirst()
+            while (lines.size > MAX_LINES) {
+                lines.removeFirst()
+                if (restartMark > 0) restartMark--
+            }
             file?.let { f ->
                 try {
                     if (f.length() > MAX_BYTES) {
@@ -68,7 +71,8 @@ object LogStore {
 
     /** 本次运行以来的日志：服务每次（重）启动时打标记，之后只显示新增内容 */
     fun snapshotSinceRestart(): List<String> = synchronized(lock) {
-        if (restartMark >= lines.size) emptyList() else lines.toList().drop(restartMark)
+        val from = restartMark.coerceIn(0, lines.size)
+        if (from >= lines.size) emptyList() else lines.toList().drop(from)
     }
 
     /** 服务（重）启动时调用：显示从标记行重新开始，文件历史不受影响 */
@@ -79,7 +83,10 @@ object LogStore {
 
     private fun pruneLocked() {
         val cutoff = System.currentTimeMillis() - MAX_AGE_MS
-        while (lines.isNotEmpty() && parseTs(lines.first()) < cutoff) lines.removeFirst()
+        while (lines.isNotEmpty() && parseTs(lines.first()) < cutoff) {
+            lines.removeFirst()
+            if (restartMark > 0) restartMark--
+        }
     }
 
     private fun parseTs(line: String): Long = try {

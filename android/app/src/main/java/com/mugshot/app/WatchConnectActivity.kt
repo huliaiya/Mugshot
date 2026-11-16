@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
 import com.mugshot.app.watch.WatchManager
 
 /**
- * 手表连接页：扫描附近 BLE 设备、手动选择手表、展示绑定进度。
+ * 手表连接页：扫描附近 BLE 设备、手动选择手表、展示连接进度。
  * 连接成功后设备地址写入 Prefs，之后每次启动自动回连，无需再次进入本页。
  */
 class WatchConnectActivity : AppCompatActivity() {
