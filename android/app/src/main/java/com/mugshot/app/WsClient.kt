@@ -248,6 +248,7 @@ class WsClient(
                 }
                 put("usage_24h", usageArr)
             }
+            if (s.foregroundActivity.isNotBlank()) put("foreground_activity", s.foregroundActivity)
             // 后台应用：最近用过但当前不在前台的（最多 5 个），插件展示"后台"行
             if (s.backgroundApps.isNotEmpty()) {
                 val bgArr = org.json.JSONArray()

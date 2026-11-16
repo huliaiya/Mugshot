@@ -27,3 +27,4 @@ temp/
 
 # 本地构建产物
 server/*.deb
+server/cmd/mugshot-gui/mugshot-gui

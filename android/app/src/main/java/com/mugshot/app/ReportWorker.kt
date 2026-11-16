@@ -53,6 +53,9 @@ class ReportWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                     }
                     put("usage_24h", usageArr)
                 }
+                if (snapshot.foregroundActivity.isNotBlank()) {
+                    put("foreground_activity", snapshot.foregroundActivity)
+                }
                 if (snapshot.backgroundApps.isNotEmpty()) {
                     val bgArr = org.json.JSONArray()
                     for ((label, pkg) in snapshot.backgroundApps) {

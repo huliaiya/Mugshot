@@ -5,6 +5,7 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
@@ -31,6 +32,7 @@ object StatusCollector {
         val foregroundApp: String,
         val foregroundPackage: String,
         val foregroundApps: List<Pair<String, String>>, // 分屏/小窗等同时可见的应用，焦点在前，最多 5 个
+        val foregroundActivity: String,                 // 焦点 Activity（package/class），Shizuku 授权时可得
         val backgroundApps: List<Pair<String, String>>, // 最近 30 分钟内用过、当前不在前台的运行中应用，最多 5 个
         val batteryLevel: Int,
         val batteryStatus: String,   // charging | full | discharging | unknown
@@ -99,6 +101,11 @@ object StatusCollector {
             foregroundApp = fg.first,
             foregroundPackage = fg.second,
             foregroundApps = fgApps,
+            foregroundActivity = if (ShizukuHelper.hasPermission()) {
+                ShizukuHelper.windowSnapshot().focusActivity
+            } else {
+                ""
+            },
             backgroundApps = bgApps,
             batteryLevel = battery.level,
             batteryStatus = battery.status,
@@ -294,10 +301,14 @@ object StatusCollector {
      */
     @SuppressLint("WrongConstant")
     fun foregroundApp(ctx: Context): Pair<String, String> {
+        val nowTs = System.currentTimeMillis()
+        if (nowTs - fgCacheAt < 8_000L) return fgCache
+        fgCacheAt = nowTs
         // 没有使用情况权限时，若 Shizuku 已授权则用 shell 读 dumpsys 兜底
         if (!hasUsageAccess(ctx)) {
             val p = ShizukuHelper.dumpsysForegroundPackage()
-            return if (p.isBlank()) Pair("", "") else Pair(appLabel(ctx, p).ifBlank { p }, p)
+            fgCache = if (p.isBlank()) Pair("", "") else Pair(appLabel(ctx, p).ifBlank { p }, p)
+            return fgCache
         }
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
@@ -316,9 +327,16 @@ object StatusCollector {
         if (pkg.isEmpty()) {
             pkg = topUsagePackage(ctx, now)
         }
-        if (pkg.isEmpty()) return Pair("", "")
-        return Pair(appLabel(ctx, pkg), pkg)
+        if (pkg.isEmpty()) {
+            fgCache = Pair("", "")
+            return fgCache
+        }
+        fgCache = Pair(appLabel(ctx, pkg), pkg)
+        return fgCache
     }
+
+    private var fgCacheAt = 0L
+    private var fgCache = Pair("", "")
 
     /**
      * 同时可见的应用列表（分屏 / 小窗 / 自由窗口 / 多窗口）。
@@ -338,8 +356,11 @@ object StatusCollector {
     fun visibleApps(ctx: Context): List<Pair<String, String>> {
         if (!hasUsageAccess(ctx)) return emptyList()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        val nowTs = System.currentTimeMillis()
+        if (nowTs - visibleCacheAt < 20_000L) return visibleCache
+        visibleCacheAt = nowTs
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val now = System.currentTimeMillis()
+        val now = nowTs
         val events = usm.queryEvents(now - 60 * 60_000L, now)
         val state = HashMap<String, Int>()   // 包名 -> 最新活动事件类型
         val resumeTs = HashMap<String, Long>() // 包名 -> 最后一次 ACTIVITY_RESUMED 时间
@@ -367,15 +388,20 @@ object StatusCollector {
             }
             .sortedByDescending { resumeTs[it.key] ?: 0L }
             .map { it.key }
-        // 事件流看不到的悬浮小窗/自由窗口，用 Shizuku 的任务栈补齐（已可见的排前面）
+        // 事件流看不到的悬浮小窗/自由窗口，用 Shizuku 的任务栈与窗口列表补齐（已可见的排前面）
         val pkgs = LinkedHashSet(fromEvents)
         if (ShizukuHelper.hasPermission()) {
             pkgs.addAll(ShizukuHelper.taskPackages().visible)
+            pkgs.addAll(ShizukuHelper.windowSnapshot().visible)
         }
-        return pkgs
+        visibleCache = pkgs
             .take(5)
             .map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
+        return visibleCache
     }
+
+    private var visibleCacheAt = 0L
+    private var visibleCache: List<Pair<String, String>> = emptyList()
 
     /**
      * 后台应用：最近 30 分钟用过、当前不在前台/可见列表里的应用（按最后使用时间倒序）。
@@ -388,6 +414,8 @@ object StatusCollector {
         visiblePkgs: Set<String>,
         now: Long,
     ): List<Pair<String, String>> {
+        if (now - bgCacheAt < 60_000L) return bgCache
+        bgCacheAt = now
         val exclude = HashSet(visiblePkgs)
         exclude += foregroundPkg
         val result = LinkedHashSet<String>()
@@ -416,8 +444,12 @@ object StatusCollector {
                 result += p
             }
         }
-        return result.take(5).map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
+        bgCache = result.take(5).map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
+        return bgCache
     }
+
+    private var bgCacheAt = 0L
+    private var bgCache: List<Pair<String, String>> = emptyList()
 
     /**
      * 包名 -> 应用名缓存。PM 查询是跨进程调用，每次上报都重复解析同一批包名

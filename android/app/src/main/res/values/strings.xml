@@ -90,6 +90,8 @@
     <string name="home_section_device">设备信息</string>
     <string name="label_battery">电池</string>
     <string name="label_temperature">温度</string>
+    <string name="label_log_autoscroll">运行日志自动滚动</string>
+    <string name="hint_log_autoscroll">开启后新日志出现时自动滚到最底部，关闭则保持当前阅读位置</string>
     <string name="label_network">网络</string>
     <string name="label_screen">屏幕</string>
     <string name="label_foreground">当前应用</string>

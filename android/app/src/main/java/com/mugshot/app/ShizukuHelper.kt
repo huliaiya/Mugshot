@@ -168,6 +168,42 @@ object ShizukuHelper {
         return tasksCache
     }
 
+    /** 窗口快照：visible=屏幕上真正可见的窗口所属应用，focusActivity=当前焦点 Activity */
+    data class WindowSnapshot(val visible: List<String>, val focusActivity: String)
+
+    private var winCacheAt = 0L
+    private var winCache = WindowSnapshot(emptyList(), "")
+
+    /**
+     * 读窗口列表，解决事件流拿不到悬浮小窗/自由窗口的问题（红米澎湃 OS 双小窗 + 前台应用）。
+     * 判定可见：窗口属性含 isVisible=true，或 mHasSurface=true 且 mViewVisibility=0x0。
+     * 结果缓存 30 秒，dumpsys window 输出较大，不宜高频调用。
+     */
+    fun windowSnapshot(): WindowSnapshot {
+        val now = System.currentTimeMillis()
+        if (now - winCacheAt < 30_000L) return winCache
+        winCacheAt = now
+        if (!hasPermission()) return winCache
+        val (code, out) = shell("dumpsys window windows")
+        if (code != 0 || out.isEmpty()) return winCache
+        val visible = LinkedHashSet<String>()
+        val header = Regex("""Window\{[^}]*?\s(?:u\d+\s+)?([A-Za-z][\w.]*)/[\w.$]+\}""")
+        val matches = header.findAll(out).toList()
+        for ((i, m) in matches.withIndex()) {
+            val end = if (i + 1 < matches.size) matches[i + 1].range.first else out.length
+            val block = out.substring(m.range.last, end.coerceAtLeast(m.range.last))
+            val shown = block.contains("isVisible=true") ||
+                (block.contains("mHasSurface=true") && block.contains("mViewVisibility=0x0"))
+            if (shown) visible += m.groupValues[1]
+        }
+        val focus = Regex(
+            """mCurrentFocus=Window\{[^}]*?\s(?:u\d+\s+)?([A-Za-z][\w.]*)/([\w.$]+)\}""",
+        ).find(out)
+        val focusActivity = focus?.let { "${it.groupValues[1]}/${it.groupValues[2]}" } ?: ""
+        winCache = WindowSnapshot(visible.toList(), focusActivity)
+        return winCache
+    }
+
     /**
      * 使用情况权限不可用时的前台应用兜底：shell 读 dumpsys activity，
      * 取当前 resumed/top 的包名。失败返回空串。

@@ -56,6 +56,11 @@ class SettingsFragment : Fragment() {
             }
         }
 
+        // 运行日志自动滚动开关
+        val swAutoScroll = view.findViewById<android.widget.Switch>(R.id.sw_log_autoscroll)
+        swAutoScroll.isChecked = Prefs.logAutoScroll
+        swAutoScroll.setOnCheckedChangeListener { _, checked -> Prefs.logAutoScroll = checked }
+
         // 周期范围 30~1830 秒，步进 30
         sbInterval.max = 60
         sbInterval.progress = (Prefs.reportIntervalSec - 30) / 30

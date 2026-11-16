@@ -18,6 +18,7 @@ object Prefs {
     const val KEY_REPORT_INTERVAL = "report_interval_sec"
     const val KEY_LAST_REPORT_TS = "last_report_ts"
     const val KEY_THEME_MODE = "theme_mode"
+    const val KEY_LOG_AUTOSCROLL = "log_autoscroll"
 
     /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
     const val THEME_FOLLOW_SYSTEM = 0
@@ -67,6 +68,11 @@ object Prefs {
     var lastReportTs: Long
         get() = sp(MugshotApp.instance).getLong(KEY_LAST_REPORT_TS, 0)
         set(v) = sp(MugshotApp.instance).edit().putLong(KEY_LAST_REPORT_TS, v).apply()
+
+    /** 运行日志页是否自动滚动到底部（跟随最新日志） */
+    var logAutoScroll: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_LOG_AUTOSCROLL, true)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_LOG_AUTOSCROLL, v).apply()
 
     var themeMode: Int
         get() = sp(MugshotApp.instance).getInt(KEY_THEME_MODE, THEME_FOLLOW_SYSTEM)

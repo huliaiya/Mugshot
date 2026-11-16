@@ -84,21 +84,22 @@ type ForegroundAppInfo struct {
 // automatically by the Android app; nothing beyond what the feature needs is
 // ever uploaded (no user input, no screen text, no clipboard).
 type ReportPayload struct {
-	ForegroundPackage string              `json:"foreground_package,omitempty"`
-	ForegroundApp     string              `json:"foreground_app,omitempty"`
-	ForegroundApps    []ForegroundAppInfo `json:"foreground_apps,omitempty"` // multi-window visible apps, focused first
-	BackgroundApps    []ForegroundAppInfo `json:"background_apps,omitempty"` // recently used, not on screen (top 5)
-	Usage24h          []UsageApp          `json:"usage_24h,omitempty"`       // per-app foreground time, trailing 24h, top 8
-	ScreenOn          bool                `json:"screen_on"`
-	BatteryLevel      int                 `json:"battery_level"`            // 0-100, -1 unknown
-	BatteryTempC      float64             `json:"battery_temp_c,omitempty"` // battery temperature, celsius
-	BatteryStatus     string              `json:"battery_status"`           // charging|full|discharging|unknown
-	Charging          bool                `json:"charging"`
-	ChargingSource    string              `json:"charging_source"` // ac|usb|wireless|none
-	NetworkType       string              `json:"network_type"`    // wifi|mobile|none
-	NetworkDetail     string              `json:"network_detail,omitempty"`
-	DeviceModel       string              `json:"device_model,omitempty"`
-	AppVersion        string              `json:"app_version,omitempty"`
+	ForegroundPackage  string              `json:"foreground_package,omitempty"`
+	ForegroundApp      string              `json:"foreground_app,omitempty"`
+	ForegroundActivity string              `json:"foreground_activity,omitempty"` // current focused activity (pkg/class)
+	ForegroundApps     []ForegroundAppInfo `json:"foreground_apps,omitempty"`     // multi-window visible apps, focused first
+	BackgroundApps     []ForegroundAppInfo `json:"background_apps,omitempty"`     // recently used, not on screen (top 5)
+	Usage24h           []UsageApp          `json:"usage_24h,omitempty"`           // per-app foreground time, trailing 24h, top 8
+	ScreenOn           bool                `json:"screen_on"`
+	BatteryLevel       int                 `json:"battery_level"`            // 0-100, -1 unknown
+	BatteryTempC       float64             `json:"battery_temp_c,omitempty"` // battery temperature, celsius
+	BatteryStatus      string              `json:"battery_status"`           // charging|full|discharging|unknown
+	Charging           bool                `json:"charging"`
+	ChargingSource     string              `json:"charging_source"` // ac|usb|wireless|none
+	NetworkType        string              `json:"network_type"`    // wifi|mobile|none
+	NetworkDetail      string              `json:"network_detail,omitempty"`
+	DeviceModel        string              `json:"device_model,omitempty"`
+	AppVersion         string              `json:"app_version,omitempty"`
 }
 
 // Report is one status submission.

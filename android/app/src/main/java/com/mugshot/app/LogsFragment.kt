@@ -80,7 +80,15 @@ class LogsFragment : Fragment() {
         // 内容不变时跳过重绘，减少刷新抖动
         if (text == lastText) return
         lastText = text
+        val prevY = scroll.scrollY
         tv.text = text
-        scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+        scroll.post {
+            if (Prefs.logAutoScroll) {
+                scroll.fullScroll(View.FOCUS_DOWN)
+            } else {
+                // 关闭自动滚动时保持阅读位置，避免刷新把视图拉回顶部
+                scroll.scrollTo(0, prevY)
+            }
+        }
     }
 }

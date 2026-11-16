@@ -162,6 +162,8 @@ export function basicView(p) {
     charging: batteryStatusText(payload),
     temp_text: tempText(payload),
     background_text: backgroundApps(payload).join("、"),
+    foreground_pkg: payload.foreground_package || "",
+    activity_text: payload.foreground_activity || "-",
   }
 }
 
