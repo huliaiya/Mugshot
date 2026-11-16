@@ -57,7 +57,36 @@ async function renderByBotRenderer(tpl, data) {
   return toImageElement(ret)
 }
 
+// 图片会发到群聊，任何服务端地址、IP、域名都可能泄露部署信息，统一在渲染前抹掉
+const REDACTED = "[地址已隐藏]"
+const ADDRESS_PATTERNS = [
+  /https?:\/\/[^\s"'<>）)]+/gi,
+  /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b/g,
+  /\blocalhost(?::\d{1,5})?\b/gi,
+  /\b[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|cn|net|org|io|xyz|top|dev|me)(?::\d{1,5})?\b/gi,
+]
+
+/** 抹掉字符串里的连接地址，保留其余文案 */
+export function redactAddress(text) {
+  let out = String(text)
+  for (const re of ADDRESS_PATTERNS) out = out.replace(re, REDACTED)
+  return out
+}
+
+/** 递归清洗渲染数据，确保模板里任何字段都不会带出地址 */
+function redactData(value) {
+  if (typeof value === "string") return redactAddress(value)
+  if (Array.isArray(value)) return value.map(redactData)
+  if (value && typeof value === "object") {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) out[k] = redactData(v)
+    return out
+  }
+  return value
+}
+
 export async function renderCard(e, tpl, data) {
+  data = redactData(data)
   // 第 1 级：runtime.render
   try {
     if (e?.runtime && typeof e.runtime.render === "function") {
@@ -94,5 +123,5 @@ export async function renderCard(e, tpl, data) {
 
 // 渲染失败时的最后一道防线：直接回复错误卡片对应的纯文本（仅在渲染器不可用时出现）
 export function fallbackText(lines) {
-  return ["【Mugshot】", ...lines].join("\n")
+  return ["【Mugshot】", ...lines.map(redactAddress)].join("\n")
 }

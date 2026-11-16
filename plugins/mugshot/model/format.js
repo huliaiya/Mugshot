@@ -238,6 +238,6 @@ export function formatMinutes(min) {
 }
 
 export function pluginFooter() {
-  const host = config.server_url ? config.server_url.replace(/^https?:\/\//, "") : ""
-  return host ? `server ${host}` : "Mugshot"
+  // 卡片会被转发到群聊，页脚只放品牌名，不暴露服务端地址
+  return "Mugshot"
 }
