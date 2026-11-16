@@ -207,6 +207,7 @@ type ui struct {
 	urlEntry   *widget.Entry
 	tokenDev   *widget.Entry
 	ctlResult  *widget.Label
+	trayHint   *widget.Label
 	verLabel   *widget.Label
 	logView    *widget.Entry
 	logScroll  *container.Scroll
@@ -300,8 +301,14 @@ func main() {
 	// 有系统托盘时：关闭窗口只隐藏，进程继续在后台运行，真正退出走托盘菜单；
 	// 不支持托盘的环境（如无桌面会话）退回"关窗即退出"，避免窗口消失后无从恢复。
 	if u.setupTray(a, w) {
+		if u.trayHint != nil {
+			u.trayHint.SetText("托盘已启用：关闭窗口只隐藏，托盘菜单可显示窗口、重启/停止/启动服务。")
+		}
 		w.SetCloseIntercept(func() { w.Hide() })
 	} else {
+		if u.trayHint != nil {
+			u.trayHint.SetText("当前桌面会话不支持系统托盘（缺少 DBus / StatusNotifier 宿主），关闭窗口将退出程序。")
+		}
 		w.SetCloseIntercept(func() {
 			u.stop()
 			w.Close()
@@ -329,14 +336,46 @@ func (u *ui) setupTray(a fyne.App, w fyne.Window) bool {
 		w.Show()
 		w.RequestFocus()
 	})
+	// 托盘里直接控制 systemd 服务，不必先打开窗口再进设置页
+	restart := fyne.NewMenuItem("重启服务", func() { u.controlService("restart", "重启服务") })
+	stop := fyne.NewMenuItem("停止服务", func() { u.controlService("stop", "停止服务") })
+	start := fyne.NewMenuItem("启动服务", func() { u.controlService("start", "启动服务") })
 	quit := fyne.NewMenuItem("退出", func() {
 		u.stop()
 		a.Quit()
 	})
 	// IsQuit 让 Fyne 复用这一项作为退出入口，避免自动追加一个英文 Quit 菜单项。
 	quit.IsQuit = true
-	desk.SetSystemTrayMenu(fyne.NewMenu("Mugshot", show, fyne.NewMenuItemSeparator(), quit))
+	desk.SetSystemTrayMenu(fyne.NewMenu("Mugshot",
+		show,
+		fyne.NewMenuItemSeparator(),
+		restart, stop, start,
+		fyne.NewMenuItemSeparator(),
+		quit,
+	))
 	return true
+}
+
+// controlService 通过 pkexec + systemctl 控制 mugshot-server，并在界面上反馈结果。
+// 托盘菜单与设置页按钮共用同一入口，保证行为一致。
+func (u *ui) controlService(action, label string) {
+	if u.ctlResult != nil {
+		u.ctlResult.SetText("正在" + label + "……（如弹出授权窗口请确认）")
+	}
+	go func() {
+		out, err := exec.Command("pkexec", "systemctl", action, "mugshot-server").CombinedOutput()
+		msg := label + "完成"
+		if err != nil {
+			msg = label + "失败：" + strings.TrimSpace(string(out))
+		}
+		fyne.Do(func() {
+			if u.ctlResult != nil {
+				u.ctlResult.SetText(msg)
+			}
+			// 窗口可能收在托盘里，用系统通知告知结果
+			fyne.CurrentApp().SendNotification(fyne.NewNotification("Mugshot", msg))
+		})
+	}()
 }
 
 // stop 通知所有轮询协程退出（只触发一次）。
@@ -694,22 +733,15 @@ func (u *ui) build() fyne.CanvasObject {
 	u.statusLn.Wrapping = fyne.TextWrapWord
 
 	svcBtn := func(text, action string) *widget.Button {
-		return widget.NewButton(text, func() {
-			u.ctlResult.SetText("正在" + text + "……（如弹出授权窗口请确认）")
-			go func() {
-				out, err := exec.Command("pkexec", "systemctl", action, "mugshot-server").CombinedOutput()
-				msg := text + "完成"
-				if err != nil {
-					msg = text + "失败：" + strings.TrimSpace(string(out))
-				}
-				fyne.Do(func() { u.ctlResult.SetText(msg) })
-			}()
-		})
+		return widget.NewButton(text, func() { u.controlService(action, text) })
 	}
 
+	u.trayHint = widget.NewLabel("")
+	u.trayHint.Wrapping = fyne.TextWrapWord
 	statusCard := widget.NewCard("服务状态", "", container.NewVBox(
 		container.NewVBox(u.statusDot, u.statusLn),
 		container.NewHBox(svcBtn("重启服务", "restart"), svcBtn("停止服务", "stop"), svcBtn("启动服务", "start")),
+		u.trayHint,
 	))
 
 	u.devSummary = widget.NewLabel("设备：—")
