@@ -84,7 +84,6 @@ echo "  journalctl -u $SERVICE_NAME -f"
 echo "  查看自动生成的 token:  sudo mugshot-ctl token"
 echo "  设备列表:              sudo mugshot-ctl devices"
 echo "  查看单台设备:          sudo mugshot-ctl show <设备名>"
-echo "  修改配置:              sudo mugshot-ctl set listen=:8080 token=auto && sudo mugshot-ctl restart
-  查看自动生成的 token:  sudo cat $INSTALL_DIR/config.json"
+echo "  修改配置:              sudo mugshot-ctl set listen=:8080 token=auto && sudo mugshot-ctl restart"
 echo "  检查更新:              sudo -u $SERVICE_USER $INSTALL_DIR/mugshot-server --check-update"
 echo "  手动更新:              curl -X POST -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/admin/update"
