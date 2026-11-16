@@ -184,7 +184,7 @@ object StatusCollector {
         val counts = collectLaunchCounts(ctx, now)
         usageCache = stats.values
             .asSequence()
-            .filter { it.packageName != ctx.packageName && it.totalTimeInForeground > 0 }
+            .filter { it.totalTimeInForeground > 0 }
             .map {
                 UsageEntry(
                     it.packageName,
@@ -373,7 +373,6 @@ object StatusCollector {
             pkgs.addAll(ShizukuHelper.taskPackages().visible)
         }
         return pkgs
-            .filter { !isNoisePackage(ctx, it) }
             .take(5)
             .map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
     }
@@ -406,36 +405,19 @@ object StatusCollector {
                 ?.forEach { st ->
                     val pkg = st.packageName ?: return@forEach
                     if (result.size >= 5) return@forEach
-                    if (pkg in exclude || isNoisePackage(ctx, pkg)) return@forEach
+                    if (pkg in exclude) return@forEach
                     result += pkg
                 }
         }
         if (ShizukuHelper.hasPermission()) {
             for (p in ShizukuHelper.taskPackages().background) {
                 if (result.size >= 5) break
-                if (p in exclude || isNoisePackage(ctx, p)) continue
+                if (p in exclude) continue
                 result += p
             }
         }
         return result.take(5).map { Pair(appLabel(ctx, it).ifBlank { it }, it) }
     }
-
-    /** 自身、桌面、SystemUI 不算"应用"，避免后台/可见列表被系统进程占位 */
-    private fun isNoisePackage(ctx: Context, pkg: String): Boolean {
-        if (pkg == ctx.packageName) return true
-        if (pkg == "com.android.systemui") return true
-        if (launcherPkg == null) {
-            launcherPkg = try {
-                val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                ctx.packageManager.resolveActivity(intent, 0)?.activityInfo?.packageName
-            } catch (_: Exception) {
-                ""
-            }
-        }
-        return pkg == launcherPkg
-    }
-
-    private var launcherPkg: String? = null
 
     /**
      * 包名 -> 应用名缓存。PM 查询是跨进程调用，每次上报都重复解析同一批包名

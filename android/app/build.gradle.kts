@@ -12,11 +12,11 @@ android {
         minSdk = 26
         targetSdk = 35
         // versionCode 每次发版都要递增：与已安装版本相同时系统会拒绝覆盖安装
-        versionCode = 20
+        versionCode = 21
 
         // 展示版本号固定为发版语义版本（v1.1.1 起与 tag 对齐），构建哈希放 BuildConfig.GIT_HASH
         val gitHash = (project.findProperty("gitHash") as String?)?.takeIf { it.isNotBlank() } ?: "dev"
-        versionName = "1.1.2"
+        versionName = "1.1.3"
         buildConfigField("String", "GIT_HASH", "\"$gitHash\"")
 
         // 更新检查用的发布版本号（tag 构建传 -PgitTag=<x.y.z>，非 tag 构建为 0.0.0）
