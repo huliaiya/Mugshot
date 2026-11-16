@@ -23,7 +23,7 @@ class HryFineProtocolTest {
 
     @Test
     fun parseRoundTripAndRejectBadHeader() {
-        val raw = HryFineProtocol.encode(0x09, 0x00, ByteArray(0), version = 0x10)
+        val raw = HryFineProtocol.encode(0x09, 0x00, ByteArray(0))
         val frame = HryFineProtocol.parse(raw)
         assertNotNull(frame)
         assertFalse(frame!!.isAck)

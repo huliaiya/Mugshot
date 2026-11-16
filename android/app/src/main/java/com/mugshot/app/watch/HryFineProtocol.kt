@@ -6,7 +6,7 @@ package com.mugshot.app.watch
  * 帧格式：[DF, lenHi, lenLo, sum8, group, type, sub, plenHi, plenLo, payload...]
  *  - len = payload.size + 5，整帧长度 = len + 4
  *  - sum8 为整帧逐字节求和（校验位先置 0）低 8 位
- *  - group 第 5 字节默认填 2A27 读到的协议版本
+ *  - group 为命令分组（0x05 健康、0x09 设置、0x03 绑定等）
  * ACK：[FD, 00, 05, sum8, group, sub, 00, 00, 01]
  *
  * 纯函数实现，便于单元测试；健康数据字段布局参考社区抓包实现。
@@ -60,15 +60,15 @@ object HryFineProtocol {
     /** 拼包时校验位先置 0，再对整帧求和取低 8 位 */
     fun checksum(bytes: ByteArray): Int = bytes.sumOf { it.toInt() and 0xFF } and 0xFF
 
-    /** 构造数据帧；version 为 2A27 解析出的协议版本（缺省 0x10） */
-    fun encode(group: Int, sub: Int, payload: ByteArray = ByteArray(0), version: Int = 0x10, type: Int = 0x01): ByteArray {
+    /** 构造数据帧：group 为命令分组，type 缺省 0x01 */
+    fun encode(group: Int, sub: Int, payload: ByteArray = ByteArray(0), type: Int = 0x01): ByteArray {
         val len = payload.size + 5
         val out = ByteArray(9 + payload.size)
         out[0] = HEADER_DATA.toByte()
         out[1] = ((len shr 8) and 0xFF).toByte()
         out[2] = (len and 0xFF).toByte()
         out[3] = 0
-        out[4] = (version and 0xFF).toByte()
+        out[4] = (group and 0xFF).toByte()
         out[5] = (type and 0xFF).toByte()
         out[6] = (sub and 0xFF).toByte()
         out[7] = ((payload.size shr 8) and 0xFF).toByte()

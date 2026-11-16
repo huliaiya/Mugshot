@@ -501,7 +501,7 @@ object WatchManager {
     private fun writeFrame(group: Int, sub: Int, payload: ByteArray = ByteArray(0)) {
         val g = gatt ?: return
         val ch = writeChar ?: return
-        val bytes = HryFineProtocol.encode(group, sub, payload, version)
+        val bytes = HryFineProtocol.encode(group, sub, payload)
         try {
             ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             ch.value = bytes
