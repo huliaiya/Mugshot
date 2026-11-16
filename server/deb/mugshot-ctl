@@ -261,7 +261,11 @@ cli_set() {
     [ "$#" -gt 0 ] || die "请提供至少一个 key=value"
     local bin; bin="$(server_bin)"
     [ -n "$bin" ] || die "找不到 mugshot-server 可执行文件"
-    need_root "$bin" -config "$CFG" -set "$@" || exit 1
+    # Go flag 每个 -set 只吃一个值，这里把 k=v 列表展开成重复的 -set
+    local args=(-config "$CFG")
+    local item
+    for item in "$@"; do args+=(-set "$item"); done
+    need_root "$bin" "${args[@]}" || exit 1
     echo "配置已写入 $CFG；重启服务生效: mugshot-ctl restart"
 }
 
