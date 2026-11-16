@@ -663,6 +663,16 @@ object WatchManager {
         main.postDelayed({ if (gatt != null && snap.state == STATE_BINDING) finishSession() }, 300)
     }
 
+    /** 手表主动确认/同意绑定（部分固件会在数据同步前后发来），只做记录与配对开关 */
+    private fun onBound() {
+        if (bound) return
+        bound = true
+        LogStore.log("watch", "手表确认绑定")
+        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
+        quickDrops = 0
+        if (snap.state != STATE_CONNECTED) finishSession()
+    }
+
     private fun finishSession() {
         if (snap.state == STATE_CONNECTED) return
         val dev = connectedDevice
