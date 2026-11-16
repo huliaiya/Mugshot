@@ -7,6 +7,9 @@ export const PLUGIN_VERSION = "1.0.0"
 export const GITHUB_REPO_DEFAULT = "huliaiya/Mugshot"
 
 const DEFAULT = {
+  // 指令别名：默认 群主（即 #群主查看）。改成 huli 后所有业务指令变为 #huli查看；
+  // 帮助指令固定为 #群主帮助，不随别名变化。可在锅巴面板修改，保存后立即生效。
+  alias: "群主",
   // mugshot-server 地址（含端口），例如 http://192.168.1.10:8080 或 https://mugshot.example.com
   server_url: "http://127.0.0.1:8080",
   // 统一 Token：服务端 config.json 中的 token，App 与插件共用同一个
@@ -17,7 +20,7 @@ const DEFAULT = {
   fresh_timeout_ms: 8000,
   // 同一用户触发 fresh 查询的最小间隔（毫秒），冷却期内自动降级为缓存查询
   fresh_cooldown_ms: 10000,
-  // #群主详情 是否默认触发按需上报
+  // 详情指令是否默认触发按需上报
   detail_fresh: true,
   // 插件更新时若插件目录的 git 没有 origin，则回退到此仓库拉取 main 分支
   github_repo: GITHUB_REPO_DEFAULT,

@@ -12,10 +12,12 @@
 // 与手改 YAML、指令内修改共用同一份数据，保存后无需重启 Yunzai。
 import { config, configSave } from "./model/config.js"
 import server from "./model/server.js"
+import { commandAlias, normalizeAlias } from "./model/alias.js"
 
 /* global logger */
 
 // 面板表单字段与 config/mugshot.yaml 的键一一对应
+const FIELD_ALIAS = "alias"
 const FIELD_SERVER_URL = "server_url"
 const FIELD_TOKEN = "token"
 const FIELD_PLUGIN_TOKEN = "plugin_token"
@@ -53,6 +55,7 @@ function bool(value, def) {
 /** 读取当前配置，组装成面板表单的数据 */
 function currentData() {
   return {
+    [FIELD_ALIAS]: commandAlias(),
     [FIELD_SERVER_URL]: normalizeUrl(config.server_url),
     [FIELD_TOKEN]: String(config.token ?? ""),
     [FIELD_PLUGIN_TOKEN]: String(config.plugin_token ?? ""),
@@ -66,6 +69,19 @@ function currentData() {
 }
 
 const schemas = [
+  {
+    label: "指令",
+    component: "SOFT_GROUP_BEGIN",
+  },
+  {
+    field: FIELD_ALIAS,
+    label: "指令别名",
+    bottomHelpMessage: "默认 群主：所有指令为 #群主查看 等；改成 huli 后变成 #huli查看。#群主帮助 固定不变。保存后立即生效，无需重启。",
+    component: "Input",
+    componentProps: {
+      placeholder: "群主",
+    },
+  },
   {
     label: "服务端连接",
     component: "SOFT_GROUP_BEGIN",
@@ -125,7 +141,7 @@ const schemas = [
   {
     field: FIELD_DETAIL_FRESH,
     label: "详情默认实时上报",
-    bottomHelpMessage: "开启后 #群主详情 会先唤醒设备上报一次",
+    bottomHelpMessage: "开启后详情指令会先唤醒设备上报一次",
     component: "Switch",
   },
   {
@@ -241,6 +257,13 @@ export function supportGuoba() {
       },
       async setConfigData(data, { Result }) {
         const patch = {}
+        if (FIELD_ALIAS in data) {
+          const alias = normalizeAlias(data[FIELD_ALIAS])
+          if (!alias) {
+            return Result.error("指令别名只能使用中英文、数字、下划线，长度 1-12")
+          }
+          patch[FIELD_ALIAS] = alias
+        }
         if (FIELD_SERVER_URL in data) patch[FIELD_SERVER_URL] = normalizeUrl(data[FIELD_SERVER_URL])
         if (FIELD_TOKEN in data) patch[FIELD_TOKEN] = String(data[FIELD_TOKEN] ?? "").trim()
         if (FIELD_PLUGIN_TOKEN in data) {

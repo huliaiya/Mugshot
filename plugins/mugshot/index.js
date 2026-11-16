@@ -27,6 +27,7 @@ import {
   reportTimestamp,
 } from "./model/format.js"
 import { getBackdrop } from "./model/backdrop.js"
+import { FIXED_HELP_PREFIX, commandAlias, cmd } from "./model/alias.js"
 import { checkForUpdate, updatePlugin, silentCheck, updateViaHost, updateLogViaHost } from "./model/updater.js"
 
 /* global logger, Bot */
@@ -55,15 +56,13 @@ export class Mugshot extends plugin {
         },
       ],
       rule: [
-        { reg: "^#群主帮助$", fnc: "help", permission: "all" },
-        { reg: "^#群主列表$", fnc: "deviceList", permission: "all" },
-        { reg: "^#群主在干嘛\\s*(.*)$", fnc: "allDoing", permission: "all" },
-        { reg: "^#群主查看\\s*(.*)$", fnc: "viewDevice", permission: "all" },
-        { reg: "^#群主详情\\s*(.*)$", fnc: "deviceDetail", permission: "all" },
-        { reg: "^#群主用过什么$", fnc: "usageStats", permission: "all" },
-        { reg: "^#群主状态$", fnc: "serverStatus", permission: "all" },
-        { reg: "^#群主更新$", fnc: "pluginUpdate", permission: "master" },
-        { reg: "^#群主更新日志$", fnc: "updateLog" },
+        // 统一入口：前缀由配置 alias 决定（默认 群主），改别名无需重启；
+        // 帮助固定 #群主帮助，其余指令必须使用当前别名。
+        {
+          reg: "^#[^\\s]+?(用过什么|更新日志|在干嘛|详情|查看|列表|状态|更新|帮助)[\\s\\S]*$",
+          fnc: "dispatch",
+          permission: "all",
+        },
       ],
     })
   }
@@ -90,6 +89,48 @@ export class Mugshot extends plugin {
 
   // ---------- 指令实现 ----------
 
+  /**
+   * 统一指令入口：按当前别名解析前缀与动作。
+   * 返回 false 表示不归本插件处理（交给其他插件），不会误吞别家指令。
+   */
+  async dispatch() {
+    const text = String(this.e.msg || "").trim()
+    const m = text.match(/^#([^\s]+?)(用过什么|更新日志|在干嘛|详情|查看|列表|状态|更新|帮助)([\s\S]*)$/)
+    if (!m) return false
+    const prefix = m[1]
+    const action = m[2]
+    const arg = (m[3] || "").trim()
+
+    // 帮助固定 #群主帮助，不随别名变化
+    if (action === "帮助") {
+      if (prefix !== FIXED_HELP_PREFIX) return false
+      return this.help()
+    }
+    if (prefix !== commandAlias()) return false
+
+    this._cmdArg = arg
+    switch (action) {
+      case "列表": return this.deviceList()
+      case "在干嘛": return this.allDoing()
+      case "查看": return this.viewDevice()
+      case "详情": return this.deviceDetail()
+      case "用过什么": return this.usageStats()
+      case "状态": return this.serverStatus()
+      case "更新":
+        if (!this.e.isMaster) return this.#renderError("权限不足", `仅 Master 可使用 ${cmd("更新")}`)
+        return this.pluginUpdate()
+      case "更新日志": return this.updateLog()
+      default: return false
+    }
+  }
+
+  /** 取指令参数：优先 dispatch 解析结果，兼容直接调用方法的场景 */
+  #commandArg(action) {
+    const provided = String(this._cmdArg ?? "").trim()
+    if (provided) return provided
+    return String(this.e.msg || "").replace(new RegExp(`^#${commandAlias()}${action}`), "").trim()
+  }
+
   /** #群主帮助 */
   async help() {
     const data = {
@@ -100,19 +141,20 @@ export class Mugshot extends plugin {
         {
           name: "设备查询",
           list: [
-            { cmd: "#群主列表", desc: "查看所有已接入设备（紧凑列表，在线状态/最后上报）" },
-            { cmd: "#群主在干嘛", desc: "全部设备此刻在干嘛：实时刷新每台设备的状态、正在使用的软件等" },
-            { cmd: "#群主查看 [设备名]", desc: "带设备名看单台实时状态；不带设备名看全部设备快照" },
-            { cmd: "#群主详情 [设备名]", desc: "查看设备完整字段与最近上报记录" },
-            { cmd: "#群主用过什么", desc: "最近 24 小时各设备用过的软件及时长（按使用时长排序）" },
+            { cmd: cmd("列表"), desc: "查看所有已接入设备（紧凑列表，在线状态/最后上报）" },
+            { cmd: cmd("在干嘛"), desc: "全部设备此刻在干嘛：实时刷新每台设备的状态、正在使用的软件等" },
+            { cmd: `${cmd("查看")} [设备名]`, desc: "带设备名看单台实时状态；不带设备名看全部设备快照" },
+            { cmd: `${cmd("详情")} [设备名]`, desc: "查看设备完整字段与最近上报记录" },
+            { cmd: cmd("用过什么"), desc: "最近 24 小时各设备用过的软件及时长（按使用时长排序）" },
           ],
         },
         {
           name: "系统维护",
           list: [
-            { cmd: "#群主状态", desc: "服务端健康状态与版本" },
-            { cmd: "#群主更新", desc: "用宿主更新机制更新插件本体（自动装依赖与重启，仅 Master）" },
-            { cmd: "#群主更新日志", desc: "查看插件最近提交记录（所有人）" },
+            { cmd: cmd("状态"), desc: "服务端健康状态与版本" },
+            { cmd: cmd("更新"), desc: "用宿主更新机制更新插件本体（自动装依赖与重启，仅 Master）" },
+            { cmd: cmd("更新日志"), desc: "查看插件最近提交记录（所有人）" },
+            { cmd: "#群主帮助", desc: `固定入口，不随别名变化（当前别名：${commandAlias()}）` },
           ],
         },
       ],
@@ -161,14 +203,14 @@ export class Mugshot extends plugin {
 
   /** #群主查看 [设备名]：无设备名看全部设备快照，带设备名看单台实时状态 */
   async viewDevice() {
-    const name = (this.e.msg.replace(/^#群主查看/, "") || "").trim()
+    const name = this.#commandArg("查看")
     if (!name) return this.#renderAllDevices({ live: false })
     return this.#queryAndRender(name, true, "status", "设备当前状态")
   }
 
   /** #群主详情 [设备名]：无设备名看全部设备，带设备名看单台完整详情 */
   async deviceDetail() {
-    const name = (this.e.msg.replace(/^#群主详情/, "") || "").trim()
+    const name = this.#commandArg("详情")
     if (!name) return this.#renderAllDevices({ live: !!config.detail_fresh })
     return this.#queryAndRender(name, !!config.detail_fresh, "detail", "设备详情")
   }
@@ -270,9 +312,9 @@ export class Mugshot extends plugin {
     if (updating) {
       const img = await renderCard(this.e, "update", updateCardData(
         "Mugshot 更新中",
-        "正在更新中（插件拉取需数秒），请稍候再试 #群主更新。",
+        `正在更新中（插件拉取需数秒），请稍候再试 ${cmd("更新")}。`,
       ))
-      return this.#send(img, null, [["Mugshot 更新", "正在更新中，请稍候再试 #群主更新。"]])
+      return this.#send(img, null, [["Mugshot 更新", `正在更新中，请稍候再试 ${cmd("更新")}`]])
     }
     updating = true
     try {
@@ -402,15 +444,15 @@ export class Mugshot extends plugin {
   /** 全部设备状态 + 使用情况（随机背景图），#群主在干嘛（实时）/ #群主查看（快照）使用 */
   async #renderAllStatus(devices, live, cooldownNote = "", refresh = null) {
     const rows = devices.map(allStatusView)
-    let liveHint = "已实时刷新各设备上报；单台可发 #群主查看 <设备名>"
+    let liveHint = `已实时刷新各设备上报；单台可发 ${cmd("查看")} <设备名>`
     if (live && refresh && refresh.degraded > 0) {
-      liveHint = `已触发实时上报，${refresh.degraded} 台未实时返回（冷却中或响应超时），已展示最近数据；单台可发 #群主查看 <设备名>`
+      liveHint = `已触发实时上报，${refresh.degraded} 台未实时返回（冷却中或响应超时），已展示最近数据；单台可发 ${cmd("查看")} <设备名>`
     }
     const data = {
       title: live ? "全部设备当前状态" : "全部设备状态",
       count: rows.length,
       onlineCount: rows.filter(d => d.online).length,
-      hint: cooldownNote || (live ? liveHint : "数据来自设备上报快照；实时刷新请发 #群主在干嘛"),
+      hint: cooldownNote || (live ? liveHint : `数据来自设备上报快照；实时刷新请发 ${cmd("在干嘛")}`),
       devices: rows,
       server: pluginFooter(),
       backdrop: getBackdrop(),
@@ -467,9 +509,9 @@ export class Mugshot extends plugin {
     const rows = isQQBot(this.e)
       ? [
           [
-            commandButton("刷新", `#群主查看 ${name}`, 1),
-            commandButton("详情", `#群主详情 ${name}`, 2),
-            commandButton("设备列表", "#群主列表", 2),
+            commandButton("刷新", `${cmd("查看")} ${name}`, 1),
+            commandButton("详情", `${cmd("详情")} ${name}`, 2),
+            commandButton("设备列表", cmd("列表"), 2),
           ],
         ]
       : []
@@ -493,7 +535,7 @@ export class Mugshot extends plugin {
     for (let i = 0; i < items.length && rows.length < 5; i += perRow) {
       rows.push(
         items.slice(i, i + perRow).map(item =>
-          commandButton(item.name, `#群主${prefix === "详情" ? "详情" : "查看"} ${item.name}`, 1),
+          commandButton(item.name, `${cmd(prefix === "详情" ? "详情" : "查看")} ${item.name}`, 1),
         ),
       )
     }
@@ -506,7 +548,7 @@ export class Mugshot extends plugin {
     const data = {
       title: `Mugshot · ${title}`,
       message,
-      hint: "可发送 #群主状态 检查服务端连通性，或联系群主检查 mugshot-server。",
+      hint: `可发送 ${cmd("状态")} 检查服务端连通性，或联系群主检查 mugshot-server。`,
       time: formatTime(Date.now()),
       server: pluginFooter(),
       backdrop: getBackdrop(),

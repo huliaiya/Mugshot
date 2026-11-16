@@ -1,5 +1,6 @@
 // Mugshot 上报数据 -> 渲染模板数据 的字段映射与格式化
 import { config } from "./config.js"
+import { cmd } from "./alias.js"
 
 const UNITS = [
   { limit: 60, div: 1, unit: "秒" },
@@ -208,7 +209,7 @@ export function statusView(resp) {
 }
 
 export function commandFor(name) {
-  return `#群主查看 ${name}`
+  return `${cmd("查看")} ${name}`
 }
 
 /** 全部设备状态卡片：每台设备的状态 + 使用情况（前台应用/电池/屏幕/网络/充电/最近上报） */
