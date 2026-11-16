@@ -4,6 +4,15 @@
 
 本仓库 `main` 分支根目录即插件本体（用于直接克隆安装）。服务端与安卓端的完整项目见 `master` 分支。
 
+## 分支说明
+
+| 分支 | 内容 | 说明 |
+| --- | --- | --- |
+| `master` | Android App、Go 服务端、插件与文档的完整源码 | 开发与提交目标，Issue/PR 请提交到这里 |
+| `main` | 由 CI 从 `master` 的 `plugins/mugshot` 自动生成的快照 | 根目录即插件，供 `git clone -b main` 安装与插件自更新 |
+
+`main` 为只读快照，每次推送到 `master` 都会强制覆盖；直接修改 `main` 的内容会在下次同步时丢失。
+
 ## 安装
 
 把本插件克隆到 TRSS-Yunzai 的 `plugins/` 目录：
@@ -29,6 +38,7 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 
 | 键 | 默认值 | 说明 |
 | --- | --- | --- |
+| `alias` | `群主` | 指令前缀，改后查询指令变为 `#huli查看` 等；`#群主帮助`、`#群主更新` 固定不变 |
 | `server_url` | `http://127.0.0.1:8080` | mugshot-server 地址（含端口） |
 | `token` | 空 | 统一 Token，与手机 App 共用同一个；在服务端 GUI 的"设置"或"接入信息"页获取 |
 | `plugin_token` | 空 | 兼容旧配置的令牌键名，`token` 为空时作为后备 |
@@ -56,6 +66,18 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 | `#群主更新` | 用宿主更新机制更新插件本体：自动拉取源码、按需安装依赖并按宿主逻辑重启（与 Mugshot 服务端无关） | Master |
 | `#群主更新日志` | 查看插件最近提交记录 | 所有人 |
 
+### 指令别名
+
+默认前缀为 `群主`，可在锅巴面板「指令 → 指令别名」或 `config/mugshot.yaml` 的 `alias` 字段修改：
+
+- 查询类指令跟随别名：`查看`、`详情`、`在干嘛`、`列表`、`用过什么`、`状态`、`更新日志`
+- `#群主帮助` 与 `#群主更新` 固定不变，改名后仍能查看帮助、改错别名也能更新恢复
+- 允许中文、字母、数字、下划线，长度 1-12；开头的 `#` 自动去掉；非法值回退 `群主`
+- 面板保存即时生效，无需重启 Yunzai；手改 yaml 后需重启
+- 改名后旧前缀立即失效，卡片提示与按钮文字会同步成新前缀
+
+示例：`alias: "huli"` 后 `#群主查看 手机` → `#huli查看 手机`，`#群主在干嘛` → `#huli在干嘛`。
+
 说明：
 
 - `#群主在干嘛` 与 `#群主列表` 的设备卡片在 QQBot 适配器下附带设备按钮，点击即查看对应单台
@@ -80,4 +102,11 @@ git clone -b main https://github.com/huliaiya/Mugshot.git mugshot
 
 ## License
 
-MIT
+本项目采用 **GNU GPL v3.0 或更新版本**（`GPL-3.0-or-later`），并依据 GPLv3 第 7(b) 条附加署名条款，完整文本见本目录 `LICENSE` 与 `NOTICE`。
+
+二次开发与分发要求：
+
+- 保留原作者版权声明、`LICENSE` 与 `NOTICE`
+- 在 README、插件帮助或"关于"入口、分发包描述中保留原作者 `huliaiya` 与原始仓库 `https://github.com/huliaiya/Mugshot`
+- 标注修改过的文件与修改日期，说明基于 Mugshot 修改；不得删除或替换原作者信息
+- 修改版同样以 GPL-3.0-or-later 发布，不能闭源分发

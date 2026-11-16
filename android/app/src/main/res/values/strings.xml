@@ -118,6 +118,7 @@
 
     <!-- 关于 -->
     <string name="about_version_label">版本</string>
+    <string name="label_author">作者</string>
     <string name="label_repo">项目仓库</string>
     <string name="label_package">应用包名</string>
 

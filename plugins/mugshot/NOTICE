@@ -1,0 +1,62 @@
+Mugshot
+Copyright (C) 2026 huliaiya
+Original repository: https://github.com/huliaiya/Mugshot
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See the LICENSE file for the full license text.
+
+Additional terms under GNU GPL v3 Section 7(b) - Attribution
+
+Any distribution of this software, in source or binary form, and any modified
+version (fork, derivative work or secondary development) must:
+
+1. Preserve this NOTICE file and the LICENSE file, and keep the copyright
+   notice above. You may add your own copyright line for your changes.
+2. Keep the original author name "huliaiya" and the original repository URL
+   https://github.com/huliaiya/Mugshot in the project README, the in-app or
+   plugin help/"About" entry, and any distribution metadata or package
+   description.
+3. Clearly mark the files you changed and the date of modification, and state
+   that the work is based on Mugshot by huliaiya.
+4. Never remove, hide or replace the original author information with your
+   own. You may add your name alongside it.
+5. Not use the original author's name or the Mugshot name to endorse your
+   modified version without prior permission.
+
+These additional terms are part of the license as permitted by GPLv3 Section 7.
+If you cannot comply with them, you may not distribute this software or any
+derivative work.
+
+--------------------------------------------------------------------
+
+中文说明
+
+Mugshot
+版权所有 (C) 2026 huliaiya
+原始仓库：https://github.com/huliaiya/Mugshot
+
+本程序为自由软件：你可以依据自由软件基金会发布的 GNU 通用公共许可证
+（GPL）第 3 版或（由你选择）任何更新版本，重新发布和/或修改本程序。
+完整协议文本见 LICENSE 文件。
+
+依据 GPLv3 第 7(b) 条附加的署名条款
+
+任何人分发本软件（源码或二进制形式）以及基于本软件修改的版本（分支、
+衍生作品或二次开发），必须遵守：
+
+1. 保留本 NOTICE 文件与 LICENSE 文件，以及上方的版权声明；可以为自己
+   的修改追加版权行。
+2. 在项目 README、App/插件内的帮助或"关于"入口，以及任何分发元数据或
+   包描述中，保留原作者名称 huliaiya 与原始仓库地址
+   https://github.com/huliaiya/Mugshot。
+3. 清楚标注你修改了哪些文件及修改日期，并说明作品基于 huliaiya 的
+   Mugshot。
+4. 不得删除、隐藏或用你自己的信息替换原作者信息；可以在旁边添加你的
+   署名。
+5. 未经许可，不得使用原作者名称或 Mugshot 名称暗示你的修改版获得官方
+   认可。
+
+上述附加条款依据 GPLv3 第 7 条构成许可证的一部分。若无法遵守，则不得
+分发本软件及其衍生作品。

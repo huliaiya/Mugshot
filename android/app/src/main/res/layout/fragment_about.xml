@@ -71,6 +71,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+            <include layout="@layout/view_info_row" android:id="@+id/row_author" />
             <include layout="@layout/view_info_row" android:id="@+id/row_repo" />
             <include layout="@layout/view_info_row" android:id="@+id/row_pkg" />
 

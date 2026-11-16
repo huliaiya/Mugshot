@@ -93,10 +93,19 @@ alias: "群主"
 - 上报服务使用 `specialUse` 前台服务类型，避免 Android 15 对 `dataSync` 的每日约 6 小时配额；配合 START_STICKY、任务划掉自动重启与 15 分钟看门狗闹钟，降低"滑到后台就断连"的概率。
 - 安装并运行 Shizuku（`https://shizuku.rikka.app/`）后，首页「Shizuku 增强」面板可一键完成：代为授予使用情况访问权限（拿到前台应用、24 小时使用时长与打开次数）、加入电池/Doze 白名单、把待机桶设为 active、放宽后台运行限制。未安装或未授权时全部能力自动降级，不影响上报。
 
+## 分支说明
+
+| 分支 | 内容 | 用途 |
+| --- | --- | --- |
+| `master` | 完整源码：Android App、Go 服务端、TRSS-Yunzai 插件、文档与构建脚本 | 日常开发与提交目标，Issue/PR 请提交到这里 |
+| `main` | CI 从 `master` 的 `plugins/mugshot` 自动生成的孤儿快照，根目录即插件本体 | 供 Yunzai 直接 `git clone -b main` 安装，也是插件自更新的拉取源 |
+
+`main` 是只读快照分支，每次推送到 `master` 时由 GitHub Actions 强制覆盖，直接修改会在下次同步时丢失。
+
 ## 快速开始
 
 1. 部署 `mugshot-server`（Ubuntu ARM64 / x86_64，systemd 常驻）：`uname -m` 确认架构后，下载 Release 对应架构的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；有桌面时应用菜单点"Mugshot 服务端"打开图形管理面板，纯 SSH/无桌面用 `sudo mugshot-ctl status|devices|show|token|config|set|logs|restart` 完成查看与设置，详见 `docs/DEPLOY.md`
-2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与 Token，与 App 共用同一个）
+2. 安装插件到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`（`main` 分支根目录即插件本体，完整源码在 `master`），配置 `config/mugshot.yaml`（服务端地址与 Token，与 App 共用同一个）
 3. 安装 Mugshot APK（Release 下载，已签名，包名 `com.Mugshot.huli`，可直接安装），同意隐私政策，授予使用情况访问权限，填写服务端地址与 Token，开启上报
 
 详细部署与三端联调配置见 [docs/DEPLOY.md](docs/DEPLOY.md)。
@@ -121,4 +130,12 @@ alias: "群主"
 
 ## License
 
-MIT
+本项目采用 **GNU GPL v3.0 或更新版本**（`GPL-3.0-or-later`），并依据 GPLv3 第 7(b) 条附加署名条款，完整文本见 `LICENSE` 与 `NOTICE`。
+
+二次开发与分发要求：
+
+- 保留原作者的版权声明、`LICENSE` 与 `NOTICE`
+- 在 README、App/插件的帮助或"关于"入口、分发包描述中保留原作者 `huliaiya` 与原始仓库 `https://github.com/huliaiya/Mugshot`
+- 标注修改过的文件与修改日期，并说明基于 Mugshot 修改
+- 不得删除或替换原作者信息，可在旁边追加自己的署名
+- 修改版同样以 GPL-3.0-or-later 发布并保留上述署名，不能闭源分发

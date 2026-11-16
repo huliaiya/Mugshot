@@ -211,7 +211,7 @@ mug.example.com {
 
 ### 2.1 方式一：克隆插件专用分支（推荐）
 
-仓库的 `main` 分支由 CI 自动同步，内容就是插件根目录：
+仓库的 `main` 分支由 CI 从 `master` 的 `plugins/mugshot` 自动生成，根目录就是插件本体，每次推送到 `master` 都会强制覆盖（只读快照，勿直接修改）：
 
 ```bash
 cd <Yunzai根目录>/plugins
@@ -230,6 +230,8 @@ tar -xzf mugshot-plugin_1.0.1.tar.gz -C <Yunzai根目录>/plugins/mugshot --stri
 > 注意：此方式解压出的插件目录不是 git 仓库，`#群主更新` 无法自动更新插件（会提示改用 git 安装）；需要一键更新请用方式一。
 
 ### 2.3 方式三：完整仓库
+
+`master` 分支包含 Android App、服务端、插件与文档的完整源码；把插件目录软链到 `plugins/mugshot` 使用：
 
 ```bash
 cd <Yunzai根目录>/plugins
@@ -347,7 +349,27 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 
 打 tag 发布：`git tag v1.0.0 && git push origin v1.0.0`，三个 workflow 会自动构建并附到 Release。
 
-## 6. 故障排查
+## 6. 分支与二次开发
+
+| 分支 | 内容 | 说明 |
+| --- | --- | --- |
+| `master` | Android App、Go 服务端、插件、文档与构建脚本的完整源码 | 开发与提交目标，Issue/PR 请提交到这里 |
+| `main` | 由 CI 从 `master` 的 `plugins/mugshot` 生成的孤儿快照 | 根目录即插件，供直接克隆安装与插件自更新 |
+
+直接修改 `main` 的内容会被下一次同步覆盖；二次开发请在 `master` 上修改插件目录。
+
+### 许可证与署名
+
+项目采用 GNU GPL v3.0 或更新版本（`GPL-3.0-or-later`），并依据 GPLv3 第 7(b) 条附加署名条款，详见仓库 `LICENSE` 与 `NOTICE`。
+
+分发或二次开发时必须：
+
+- 保留原作者版权声明、`LICENSE`、`NOTICE`
+- 在 README、App/插件帮助或"关于"入口、分发包描述中保留原作者 `huliaiya` 与原始仓库 `https://github.com/huliaiya/Mugshot`
+- 标注修改过的文件与日期，说明基于 Mugshot 修改
+- 修改版继续以 GPL-3.0-or-later 发布，不得闭源分发
+
+## 7. 故障排查
 
 | 现象 | 排查 |
 |------|------|

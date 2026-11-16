@@ -29,6 +29,7 @@ class AboutFragment : Fragment() {
         // 软件版本号 = 构建时的 Git 短哈希（与系统设置-应用信息中显示一致）；更新检查按发布 tag 比较
         view.findViewById<TextView>(R.id.tv_version).text = BuildConfig.GIT_HASH
 
+        setRow(view, R.id.row_author, R.string.label_author, "huliaiya")
         setRow(view, R.id.row_repo, R.string.label_repo, Updater.DEFAULT_REPO)
         setRow(view, R.id.row_pkg, R.string.label_package, requireContext().packageName)
 
