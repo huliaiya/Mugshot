@@ -22,6 +22,14 @@ class HryFineProtocolTest {
     }
 
     @Test
+    fun encodeKeepsGroupAndCustomTypeByte() {
+        val frame = HryFineProtocol.encode(0x03, 0x00, byteArrayOf(1, 2), 0x21)
+        assertEquals(0x03, frame[4].toInt() and 0xFF)
+        assertEquals(0x21, frame[5].toInt() and 0xFF)
+        assertEquals(0x00, frame[6].toInt() and 0xFF)
+    }
+
+    @Test
     fun parseRoundTripAndRejectBadHeader() {
         val raw = HryFineProtocol.encode(0x09, 0x00, ByteArray(0))
         val frame = HryFineProtocol.parse(raw)

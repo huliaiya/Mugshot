@@ -46,6 +46,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
     private lateinit var watchTitle: TextView
     private lateinit var watchStatus: TextView
     private lateinit var watchBody: LinearLayout
+    private lateinit var watchCandidates: LinearLayout
 
     private val watchListener: (WatchManager.Snapshot) -> Unit = { s ->
         if (view != null) renderWatch(s)
@@ -95,10 +96,11 @@ class HomeFragment : Fragment(), WsClient.Listener {
         watchTitle = view.findViewById(R.id.watch_title)
         watchStatus = view.findViewById(R.id.watch_status)
         watchBody = view.findViewById(R.id.watch_body)
+        watchCandidates = view.findViewById(R.id.watch_candidates)
         watchSwitch.isChecked = Prefs.watchEnabled
         watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
         view.findViewById<Button>(R.id.btn_watch_connect).setOnClickListener {
-            if (Prefs.watchEnabled) WatchManager.refreshNow() else setWatchEnabled(true)
+            if (Prefs.watchEnabled) WatchManager.rescan() else setWatchEnabled(true)
         }
         view.findViewById<Button>(R.id.btn_watch_sync).setOnClickListener {
             if (Prefs.watchEnabled) {
@@ -374,7 +376,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
         watchTitle.text = if (s.connected && s.name.isNotBlank()) s.name else getString(R.string.watch_title_off)
         watchStatus.text = when {
             !s.enabled -> getString(R.string.watch_status_off)
-            s.state == WatchManager.STATE_SCANNING -> getString(R.string.watch_status_scanning)
+            s.state == WatchManager.STATE_SCANNING -> s.detail.ifBlank { getString(R.string.watch_status_scanning) }
             s.state == WatchManager.STATE_CONNECTING -> getString(R.string.watch_status_connecting)
             s.state == WatchManager.STATE_BINDING -> s.detail.ifBlank { getString(R.string.watch_status_connecting) }
             s.connected -> getString(R.string.watch_status_connected)
@@ -401,6 +403,40 @@ class HomeFragment : Fragment(), WsClient.Listener {
             R.string.label_watch_sync,
             if (s.updatedAt > 0) timeFmt.format(Date(s.updatedAt)) else getString(R.string.value_never),
         )
+        renderWatchCandidates(s)
+    }
+
+    private fun renderWatchCandidates(s: WatchManager.Snapshot) {
+        watchCandidates.removeAllViews()
+        if (!s.enabled || s.connected || s.candidates.isEmpty()) {
+            watchCandidates.visibility = View.GONE
+            return
+        }
+        watchCandidates.visibility = View.VISIBLE
+        val hint = TextView(requireContext()).apply {
+            text = getString(R.string.watch_pick_hint)
+            setTextColor(ContextCompat.getColor(requireContext(), R.color.text_sub))
+            textSize = 12f
+            setPadding(0, 0, 0, 4)
+        }
+        watchCandidates.addView(hint)
+        for (c in s.candidates) {
+            val base = if (c.name.isBlank()) c.address else "${c.name}  (${c.rssi} dBm)"
+            val label = if (c.likelyWatch) "$base  · 可能是手表" else base
+            val btn = Button(requireContext()).apply {
+                text = label
+                textSize = 13f
+                isAllCaps = false
+                setOnClickListener { WatchManager.connectCandidate(c.address, c.name) }
+            }
+            watchCandidates.addView(
+                btn,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
     }
 
     private fun setWatchRow(rowId: Int, labelRes: Int, value: String) {
