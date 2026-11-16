@@ -92,7 +92,7 @@
   {{ /if }}
 
   <div class="meta">
-    <span>上报时间：{{ report_time }}</span>
+    <span>上报时间：{{ report_time }}{{ if last_report_ago }}（{{ last_report_ago }}）{{ /if }}</span>
     <span>设备 ID：{{ device_id_short }}</span>
   </div>
 </div>

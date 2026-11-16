@@ -47,7 +47,7 @@
     <div class="row"><span class="k">首次接入</span><span class="v">{{ first_seen }}</span></div>
     <div class="row"><span class="k">累计上报</span><span class="v">{{ report_count }} 次</span></div>
     <div class="row"><span class="k">实时唤醒</span><span class="v">{{ fresh_count }} 次</span></div>
-    <div class="row"><span class="k">最后上报</span><span class="v">{{ report_time }}</span></div>
+    <div class="row"><span class="k">最后上报</span><span class="v">{{ report_time }}{{ if last_report_ago }}（{{ last_report_ago }}）{{ /if }}</span></div>
   </div>
 
   {{ if has_report }}

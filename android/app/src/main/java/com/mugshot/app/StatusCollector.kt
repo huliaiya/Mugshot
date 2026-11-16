@@ -101,7 +101,8 @@ object StatusCollector {
             foregroundApp = fg.first,
             foregroundPackage = fg.second,
             foregroundApps = fgApps,
-            foregroundActivity = if (ShizukuHelper.hasPermission()) {
+            // 息屏时没有“焦点窗口”，省掉一次 dumpsys window（输出很大，CPU 开销明显）
+            foregroundActivity = if (screenOn && ShizukuHelper.hasPermission()) {
                 ShizukuHelper.windowSnapshot().focusActivity
             } else {
                 ""
@@ -116,7 +117,7 @@ object StatusCollector {
             networkDetail = network.second,
             deviceModel = Build.MODEL ?: "",
             appVersion = appVersion(ctx),
-            usage24h = collectUsage24h(ctx),
+            usage24h = collectUsage24h(ctx, screenOn),
         )
     }
 
@@ -174,9 +175,12 @@ object StatusCollector {
      * 未授予「使用情况访问权限」时返回空列表。
      */
     @SuppressLint("WrongConstant")
-    private fun collectUsage24h(ctx: Context): List<UsageEntry> {
+    private fun collectUsage24h(ctx: Context, screenOn: Boolean): List<UsageEntry> {
         val now = System.currentTimeMillis()
         if (now - usageCacheAt < USAGE_CACHE_MS) return usageCache
+        // 息屏期间前台时长几乎不变，直接复用旧结果（最长 30 分钟），
+        // 避免每次息屏上报都跨进程聚合 24 小时使用数据。
+        if (!screenOn && usageCache.isNotEmpty() && now - usageCacheAt < 30 * 60_000L) return usageCache
         usageCacheAt = now
         usageCache = emptyList()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return usageCache
@@ -302,6 +306,10 @@ object StatusCollector {
     fun foregroundApp(ctx: Context): Pair<String, String> {
         val nowTs = System.currentTimeMillis()
         if (nowTs - fgCacheAt < 8_000L) return fgCache
+        // 息屏后事件流基本不再产生前台切换：复用半小时内的结果，
+        // 避免每次息屏上报都遍历 1 小时事件（CPU 唤醒的主要来源之一）。
+        val interactive = (ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
+        if (!interactive && fgCache.second.isNotBlank() && nowTs - fgCacheAt < 30 * 60_000L) return fgCache
         fgCacheAt = nowTs
         // 没有使用情况权限时，若 Shizuku 已授权则用 shell 读 dumpsys 兜底
         if (!hasUsageAccess(ctx)) {

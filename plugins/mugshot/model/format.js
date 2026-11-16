@@ -125,10 +125,17 @@ export function foregroundText(payload) {
   return "未获取（需授权使用情况访问 / 息屏）"
 }
 
+/** 最近上报时间戳：优先 last_report_at，兼容只存了 last_report 的旧服务端数据 */
+export function reportTimestamp(d) {
+  if (!d) return 0
+  return Number(d.last_report_at) || Number(d.last_report?.timestamp) || 0
+}
+
 /** 设备 -> 列表/详情通用视图字段 */
 export function deviceView(d) {
   if (!d) return {}
   const model = d.model || d.Model || ""
+  const reportTs = reportTimestamp(d)
   return {
     device_id: d.device_id || "-",
     device_id_short: maskDeviceID(d.device_id),
@@ -137,9 +144,9 @@ export function deviceView(d) {
     online: !!d.online,
     last_heartbeat: formatTime(d.last_heartbeat),
     last_heartbeat_ago: formatAgo(d.last_heartbeat),
-    last_report_at: formatTime(d.last_report_at),
-    last_report_ago: formatAgo(d.last_report_at),
-    last_report_short: formatShortTime(d.last_report_at),
+    last_report_at: formatTime(reportTs),
+    last_report_ago: reportTs ? formatAgo(reportTs) : "从未上报",
+    last_report_short: formatShortTime(reportTs),
     report_count: d.report_count || 0,
     fresh_count: d.fresh_count || 0,
     first_seen: formatTime(d.first_seen),
@@ -175,7 +182,7 @@ export function statusView(resp) {
   const view = {
     ...deviceView(d),
     ...basicView(r?.payload),
-    report_time: formatShortTime(r?.at),
+    report_time: formatShortTime(Number(r?.timestamp) || Number(r?.at) || reportTimestamp(d)),
     source_text: meta.text,
     source_class: meta.cls,
     request_id: maskRequestID(resp.request_id),
@@ -184,13 +191,19 @@ export function statusView(resp) {
     stale: !!resp.stale,
   }
   // 详情模式：最近上报记录（服务端 recent 为正序，倒序展示最新在前）
+  // 服务端 recent 条目是扁平的 {at,app,battery,screen}；旧数据可能带 payload，两种都兼容
   const recent = Array.isArray(d.recent) ? d.recent.slice(-10).reverse() : []
-  view.recent = recent.map(h => ({
-    time: formatShortTime(h.at),
-    app: h.payload?.foreground_app || h.payload?.foreground_package || "-",
-    screen: screenText(h.payload?.screen_on),
-    battery: typeof h.payload?.battery_level === "number" ? `${h.payload.battery_level}%` : "-",
-  }))
+  view.recent = recent.map(h => {
+    const p = h.payload || {}
+    const screenOn = typeof h.screen === "boolean" ? h.screen : p.screen_on
+    const battery = typeof h.battery === "number" ? h.battery : p.battery_level
+    return {
+      time: formatShortTime(h.at || p.timestamp),
+      app: h.app || p.foreground_app || p.foreground_package || "未知应用",
+      screen: typeof screenOn === "boolean" ? screenText(screenOn) : "-",
+      battery: typeof battery === "number" && battery >= 0 ? `${battery}%` : "未知",
+    }
+  })
   return view
 }
 
@@ -215,7 +228,7 @@ export function allStatusView(d) {
     screenText: p.screen_on === undefined ? "无数据" : screenText(p.screen_on),
     networkText: p.network_type ? networkText(p) : "无数据",
     chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
-    report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
+    report_time_text: reportTimestamp(d) ? formatAgo(reportTimestamp(d)) : "从未上报",
     usage_total: usage.length ? formatMinutes(usage.reduce((sum, u) => sum + (Number(u?.min) || 0), 0)) : "",
     usage_count: usage.length ? `，共 ${usage.length} 个应用` : "",
     usage: [...usage].sort((a, b) => (Number(b?.min) || 0) - (Number(a?.min) || 0)).map(u => ({

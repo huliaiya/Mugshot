@@ -177,11 +177,11 @@ object ShizukuHelper {
     /**
      * 读窗口列表，解决事件流拿不到悬浮小窗/自由窗口的问题（红米澎湃 OS 双小窗 + 前台应用）。
      * 判定可见：窗口属性含 isVisible=true，或 mHasSurface=true 且 mViewVisibility=0x0。
-     * 结果缓存 30 秒，dumpsys window 输出较大，不宜高频调用。
+     * 结果缓存 60 秒，dumpsys window 输出较大，不宜高频调用。
      */
     fun windowSnapshot(): WindowSnapshot {
         val now = System.currentTimeMillis()
-        if (now - winCacheAt < 30_000L) return winCache
+        if (now - winCacheAt < 60_000L) return winCache
         winCacheAt = now
         if (!hasPermission()) return winCache
         val (code, out) = shell("dumpsys window windows")

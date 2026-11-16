@@ -24,6 +24,7 @@ import {
   formatMinutes,
   maskDeviceID,
   pluginFooter,
+  reportTimestamp,
 } from "./model/format.js"
 import { getBackdrop } from "./model/backdrop.js"
 import { checkForUpdate, updatePlugin, silentCheck, updateViaHost, updateLogViaHost } from "./model/updater.js"
@@ -174,7 +175,7 @@ export class Mugshot extends plugin {
 
   /**
    * #群主用过什么：每台设备最近 24 小时的软件使用时长。
-   * 数据由 App 在每次上报时携带（usage_24h，前台时长 top 8，30 秒缓存），
+   * 数据由 App 在每次上报时携带（usage_24h，全部应用按时长倒序，缓存数分钟），
    * 服务端随设备快照保存，这里直接读最新快照，不额外唤醒设备。
    */
   async usageStats() {
@@ -197,7 +198,7 @@ export class Mugshot extends plugin {
         device_name: d.device_name || d.device_id,
         device_model: d.model || "未知型号",
         online: !!d.online,
-        report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
+        report_time_text: reportTimestamp(d) ? formatAgo(reportTimestamp(d)) : "从未上报",
         has_data: usage.length > 0,
         total_text: formatMinutes(total),
         apps: usage.map(u => ({

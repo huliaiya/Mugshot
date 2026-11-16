@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
  * 协议（与 mugshot-server hub.go 对齐）：
  *  1. 连接 ws(s)://host/ws/device?token=xxx 后首条消息必须 register
  *  2. 服务端回 register_ok 后进入正常收发
- *  3. 每 25s 发 heartbeat；每 reportIntervalSec 发定时 report
+ *  3. 每 60s 发 heartbeat；每 reportIntervalSec 发定时 report
  *  4. 收到 request_report（带 request_id）立即采集上报，request_id 原样带回
  *  5. 断线指数退避重连（1s 起，最长 1 分钟）；网络恢复/切换时立即重连；
  *     App 回到前台时跳过剩余退避立即重连（后台被 Doze/网络切换断开后，回前台秒连）
@@ -38,16 +38,16 @@ class WsClient(
         const val STATE_OFFLINE = "offline"
         const val STATE_ERROR = "error"
         private val BACKOFF = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 60_000)
-        // 心跳/协议 ping 45s：服务端 90s 无 pong 才判离线，45s 留足余量；
-        // 相比 25s 可少唤醒约 45% 的射频，息屏状态省电更明显。
-        private const val HEARTBEAT_MS = 45_000L
+        // 心跳/协议 ping 60s：服务端 90s 无 pong 才判离线，60s 留足余量；
+        // 相比 25s 可少唤醒约 60% 的射频，息屏状态省电更明显。
+        private const val HEARTBEAT_MS = 60_000L
         private const val REQUEST_DEDUP_MS = 2_000L
     }
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // websocket 长连接不设读超时
-        .pingInterval(45, TimeUnit.SECONDS)    // OkHttp 协议层 ping，保持 NAT
+        .pingInterval(60, TimeUnit.SECONDS)    // OkHttp 协议层 ping，保持 NAT
         .build()
 
     private val main = Handler(Looper.getMainLooper())
@@ -234,7 +234,7 @@ class WsClient(
                 }
                 put("foreground_apps", arr)
             }
-            // 最近 24 小时使用时长（top 8）：由服务端随设备快照存储，插件 #群主用过什么 展示
+            // 最近 24 小时使用时长（全部应用）：由服务端随设备快照存储，插件 #群主用过什么 展示
             if (s.usage24h.isNotEmpty()) {
                 val usageArr = org.json.JSONArray()
                 for (u in s.usage24h) {

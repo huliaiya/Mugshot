@@ -118,6 +118,7 @@ type HistoryEntry struct {
 	At      int64  `json:"at"`
 	App     string `json:"app"`
 	Battery int    `json:"battery"`
+	Screen  bool   `json:"screen"` // true=亮屏
 }
 
 // Device is the persistent per-device record.
@@ -181,6 +182,22 @@ func OpenStore(cfg *Config) (*Store, error) {
 		return nil, err
 	}
 	n := len(s.devices)
+	for _, d := range s.devices {
+		// 兼容旧数据：早于 last_report_at 字段的版本只存了 last_report，
+		// 这里补齐时间戳，避免插件把有历史上报的设备显示成“从未上报”。
+		if d.LastReportAt == 0 && d.LastReport != nil {
+			d.LastReportAt = d.LastReport.Timestamp
+		}
+		if d.LastHeartbeat == 0 {
+			d.LastHeartbeat = d.LastReportAt
+		}
+		if d.LastHeartbeat == 0 {
+			d.LastHeartbeat = d.FirstSeen
+		}
+		if d.LastReportAt > 0 || d.LastHeartbeat > 0 {
+			s.dirty = true
+		}
+	}
 	if n > 0 {
 		log.Printf("[store] 已加载 %d 台设备记录", n)
 	}
@@ -250,7 +267,16 @@ func (s *Store) ApplyReport(deviceID, deviceName string, rep *Report) *Device {
 	if rep.RequestID != "" {
 		d.FreshCount++
 	}
-	d.Recent = append(d.Recent, HistoryEntry{At: rep.Timestamp, App: rep.Payload.ForegroundApp, Battery: rep.Payload.BatteryLevel})
+	recentApp := rep.Payload.ForegroundApp
+	if recentApp == "" {
+		recentApp = rep.Payload.ForegroundPackage
+	}
+	d.Recent = append(d.Recent, HistoryEntry{
+		At:      rep.Timestamp,
+		App:     recentApp,
+		Battery: rep.Payload.BatteryLevel,
+		Screen:  rep.Payload.ScreenOn,
+	})
 	if len(d.Recent) > maxRecent {
 		d.Recent = d.Recent[len(d.Recent)-maxRecent:]
 	}
