@@ -71,10 +71,11 @@ object WatchManager {
     private const val WRITE_TIMEOUT_MS = 400L
     private const val CONNECT_TIMEOUT_MS = 15000L
     private const val CANDIDATE_PUBLISH_MS = 400L
-    private const val HEALTH_WINDOW_MS = 20000L
     private const val STRATEGY_CHALLENGE = "challenge"
     private const val STRATEGY_DEVICE_INFO = "deviceInfo"
     private const val STRATEGY_DIRECT = "direct"
+    private const val BIND_TIMEOUT_MS = 30000L
+    private const val STEP_TIMEOUT_MS = 3000L
     private val RECONNECT_DELAYS = longArrayOf(5_000, 10_000, 20_000, 40_000, 60_000)
 
     private val main = Handler(Looper.getMainLooper())
@@ -102,7 +103,6 @@ object WatchManager {
     private var settings: Map<Int, ByteArray> = emptyMap()
     private var lastFirmware = ""
     private var lastProject = ""
-    private var bindAttempts = 0
     private var bound = false
     private var challenge = ByteArray(0)
     private var connectedDevice: android.bluetooth.BluetoothDevice? = null
@@ -111,6 +111,7 @@ object WatchManager {
     private var probeIdx = 0
     private var reconnectIdx = 0
     private var suppressReconnect = false
+    private var reconnectScheduled = false
     private var quickDrops = 0
     private var connectedAt = 0L
     private var userStopped = false
@@ -127,6 +128,54 @@ object WatchManager {
     private val writeTick = Runnable {
         writeBusy = false
         pumpWrite()
+    }
+
+    /** 等待某个回包；超时以 null 回调，连接断开时统一取消 */
+    private class Waiter(
+        val match: (HryFineProtocol.Frame) -> Boolean,
+        val onResult: (HryFineProtocol.Frame?) -> Unit,
+    ) {
+        var finished = false
+    }
+
+    private val waiters = mutableListOf<Waiter>()
+
+    private fun awaitFrame(
+        timeoutMs: Long,
+        match: (HryFineProtocol.Frame) -> Boolean,
+        onResult: (HryFineProtocol.Frame?) -> Unit,
+    ) {
+        val w = Waiter(match, onResult)
+        waiters += w
+        main.postDelayed({
+            if (!w.finished) {
+                w.finished = true
+                waiters.remove(w)
+                onResult(null)
+            }
+        }, timeoutMs)
+    }
+
+    private fun dispatchWaiters(frame: HryFineProtocol.Frame) {
+        if (waiters.isEmpty()) return
+        for (w in waiters.toList()) {
+            if (!w.finished && w.match(frame)) {
+                w.finished = true
+                waiters.remove(w)
+                w.onResult(frame)
+            }
+        }
+    }
+
+    private fun cancelWaiters() {
+        val pending = waiters.toList()
+        waiters.clear()
+        pending.forEach {
+            if (!it.finished) {
+                it.finished = true
+                it.onResult(null)
+            }
+        }
     }
 
     private fun pumpWrite() {
@@ -247,6 +296,10 @@ object WatchManager {
 
     private fun connectSavedOrScan() {
         if (!Prefs.watchEnabled || userStopped) return
+        // 已在连接/绑定/已连接时忽略重复触发，避免把正常连接打断
+        if (snap.state == STATE_CONNECTED || snap.state == STATE_CONNECTING || snap.state == STATE_BINDING) {
+            if (snap.state != STATE_BINDING || gatt != null) return
+        }
         if (!hasPermissions()) {
             setState(STATE_ERROR, "缺少蓝牙权限")
             return
@@ -399,8 +452,12 @@ object WatchManager {
 
     @SuppressLint("MissingPermission")
     private fun connect(device: android.bluetooth.BluetoothDevice) {
+        val current = gatt
+        if (current != null && connectedDevice?.address == device.address &&
+            snap.state in listOf(STATE_CONNECTING, STATE_BINDING, STATE_CONNECTED)
+        ) return
+        reconnectScheduled = false
         disconnectGatt()
-        bindAttempts = 0
         bound = false
         suppressReconnect = false
         connectedDevice = device
@@ -423,6 +480,16 @@ object WatchManager {
 
     private const val TRANSPORT_LE = 2
 
+    private fun statusText(status: Int): String = when (status) {
+        0 -> "正常"
+        8 -> "连接超时"
+        19 -> "对端主动断开"
+        22 -> "本机主动断开"
+        133 -> "GATT 错误"
+        257 -> "读取失败"
+        else -> ""
+    }
+
     private fun disconnectGatt() {
         val g = gatt
         gatt = null
@@ -434,6 +501,8 @@ object WatchManager {
         writeQueue.clear()
         writeBusy = false
         main.removeCallbacks(writeTick)
+        cancelWaiters()
+        bindPlan = ArrayDeque()
         connectedDevice = null
         version = 0x01
         features = HryFineProtocol.Features(false, false, false, false, false)
@@ -461,7 +530,7 @@ object WatchManager {
                 val lived = if (connectedAt > 0) System.currentTimeMillis() - connectedAt else Long.MAX_VALUE
                 connectedAt = 0
                 quickDrops = if (lived < 4000) quickDrops + 1 else 0
-                LogStore.log("watch", "手表连接断开（status=$status，持续 ${lived}ms，连续快速断开 $quickDrops 次）")
+                LogStore.log("watch", "手表连接断开（status=$status ${statusText(status)}，持续 ${lived}ms，连续快速断开 $quickDrops 次）")
                 val fatal = suppressReconnect
                 suppressReconnect = false
                 if (quickDrops >= 3) {
@@ -471,7 +540,7 @@ object WatchManager {
                 // 绑定过程中被手表断链，说明这条登录路径被拒绝，下次换一条
                 if (snap.state == STATE_BINDING && !bound) {
                     probeIdx++
-                    LogStore.log("watch", "绑定路径被手表拒绝，下次尝试：${if (features.valid) "按特性位" else bindStrategy()}")
+                    LogStore.log("watch", "绑定过程被手表断开，下次换一条绑定路径")
                 }
                 disconnectGatt()
                 if (Prefs.watchEnabled && !userStopped && !fatal) {
@@ -645,33 +714,135 @@ object WatchManager {
         publish()
     }
 
+    private var bindPlan: ArrayDeque<String> = ArrayDeque()
+    private var bindRounds = 0
+
     private fun beginSession() {
         setState(STATE_BINDING, "正在绑定，请在手表上确认…")
-        val userId = Prefs.watchUserId.toByteArray(Charsets.US_ASCII)
-        // 顺序对齐 HryFine：挑战 → 确认 → 设备信息 → 绑定 → 校时 → 设置/健康。
-        // 未完成绑定的手表会直接断链，所以校时必须放在绑定之后。
-        val strategy = bindStrategy()
-        LogStore.log("watch", "绑定路径：$strategy")
-        if (strategy == STRATEGY_CHALLENGE) {
-            challenge = newChallenge()
-            main.postDelayed({ writeFrame(HryFineProtocol.GROUP_CHALLENGE, 0x00, challenge) }, 150)
-            main.postDelayed({ writeFrame(HryFineProtocol.GROUP_CHALLENGE_CONFIRM, 0x00, byteArrayOf(0x00)) }, 1200)
-        }
-        if (strategy != STRATEGY_DIRECT) {
-            main.postDelayed({ writeFrame(HryFineProtocol.GROUP_DEVICE_INFO, 0x00) }, 1700)
-        }
-        main.postDelayed({ writeFrame(HryFineProtocol.GROUP_BIND, HryFineProtocol.SUB_BIND, userId) }, 2100)
-        main.postDelayed({
-            if (gatt == null || snap.state != STATE_BINDING) return@postDelayed
-            completeSession()
-        }, HEALTH_WINDOW_MS)
+        bindPlan = ArrayDeque(buildPlan())
+        nextStrategy("开始绑定")
     }
 
-    private fun completeSession() {
+    /** 绑定路径：特性位可读时按特性位选，失败再补一次直接绑定；读不到时轮换探测 */
+    private fun buildPlan(): List<String> {
+        val preferred = when {
+            features.valid && features.sdk -> STRATEGY_CHALLENGE
+            features.valid && features.deviceInfo -> STRATEGY_DEVICE_INFO
+            features.valid -> STRATEGY_DIRECT
+            else -> null
+        }
+        if (preferred != null) {
+            return if (preferred == STRATEGY_DIRECT) listOf(preferred) else listOf(preferred, STRATEGY_DIRECT)
+        }
+        val order = listOf(STRATEGY_DEVICE_INFO, STRATEGY_CHALLENGE, STRATEGY_DIRECT)
+        val start = probeIdx % order.size
+        return order.drop(start) + order.take(start)
+    }
+
+    private fun nextStrategy(reason: String) {
+        if (gatt == null) return
+        LogStore.log("watch", "绑定路径切换（$reason）")
+        val strategy = bindPlan.removeFirstOrNull()
+        if (strategy == null) {
+            LogStore.log("watch", "所有绑定路径均无响应，断开后换一组路径重试")
+            setState(STATE_BINDING, "手表未响应绑定请求，正在重试…")
+            probeIdx++
+            main.postDelayed({
+                if (gatt != null) {
+                    suppressReconnect = true
+                    disconnectGatt()
+                    main.postDelayed({ connectSavedOrScan() }, 3000)
+                }
+            }, 500)
+            return
+        }
+        bindRounds = 0
+        LogStore.log("watch", "绑定路径：$strategy")
+        when (strategy) {
+            STRATEGY_CHALLENGE -> doChallenge()
+            STRATEGY_DEVICE_INFO -> doDeviceInfo()
+            else -> doBind()
+        }
+    }
+
+    private fun doChallenge() {
+        challenge = newChallenge()
+        awaitFrame(STEP_TIMEOUT_MS, { !it.isAck && it.group == HryFineProtocol.GROUP_CHALLENGE }) { reply ->
+            if (reply == null) {
+                nextStrategy("挑战无回复")
+                return@awaitFrame
+            }
+            val expected = HryFineProtocol.challengeCode(challenge)
+            val got = reply.payload.getOrNull(1)?.toInt()?.and(0xFF)
+            LogStore.log("watch", "挑战校验：" + if (got == expected) "通过" else "不一致（期望 $expected，收到 $got）")
+            awaitFrame(STEP_TIMEOUT_MS, { !it.isAck && it.group == HryFineProtocol.GROUP_CHALLENGE_CONFIRM }) {
+                if (it == null) LogStore.log("watch", "确认挑战无回复，继续绑定")
+                doDeviceInfo()
+            }
+            writeFrame(HryFineProtocol.GROUP_CHALLENGE_CONFIRM, 0x00, byteArrayOf(0x00))
+        }
+        writeFrame(HryFineProtocol.GROUP_CHALLENGE, 0x00, challenge)
+    }
+
+    private fun doDeviceInfo() {
+        awaitFrame(STEP_TIMEOUT_MS, { !it.isAck && it.group == HryFineProtocol.GROUP_DEVICE_INFO }) {
+            if (it == null) LogStore.log("watch", "设备信息无回复，继续绑定")
+            doBind()
+        }
+        writeFrame(HryFineProtocol.GROUP_DEVICE_INFO, 0x00)
+    }
+
+    private fun doBind() {
+        if (gatt == null) return
+        writeFrame(HryFineProtocol.GROUP_BIND, HryFineProtocol.SUB_BIND, Prefs.watchUserId.toByteArray(Charsets.US_ASCII))
+        LogStore.log("watch", "已发送绑定请求，等待手表回复…")
+        awaitFrame(BIND_TIMEOUT_MS, { it.group == HryFineProtocol.GROUP_BIND && (it.isAck || it.sub == 0x01) }) { reply ->
+            when {
+                reply == null -> nextStrategy("绑定无回复")
+                reply.isAck -> {
+                    val ok = (reply.payload.lastOrNull()?.toInt()?.and(0xFF)) == 0x01
+                    if (ok) onBound() else nextStrategy("手表未接受绑定（status=${reply.status}）")
+                }
+                else -> {
+                    val accepted = (reply.payload.firstOrNull()?.toInt()?.and(0xFF)) == 0x01
+                    when {
+                        !accepted -> nextStrategy("手表上拒绝了绑定")
+                        bindRounds >= 2 -> nextStrategy("多次确认后仍无结果")
+                        else -> {
+                            bindRounds++
+                            LogStore.log("watch", "手表已确认绑定，重新发送绑定请求（第 $bindRounds 次）")
+                            main.postDelayed({ if (gatt != null) doBind() }, 300)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun onBound() {
+        if (bound) return
+        bound = true
+        LogStore.log("watch", "绑定成功")
+        // 与官方 App 一致：绑定成功后打开手表配对开关
+        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
+        val dev = connectedDevice
+        if (dev != null) {
+            Prefs.watchAddress = dev.address
+            val name = safeNameOf(dev)
+            if (name.isNotBlank()) Prefs.watchName = name
+            snap = snap.copy(address = dev.address, name = Prefs.watchName)
+            LogStore.log("watch", "已保存手表 $name (${dev.address})，下次自动连接")
+        }
+        quickDrops = 0
+        publish()
+        main.postDelayed({ finishSession() }, 500)
+    }
+
+    private fun finishSession() {
         if (snap.state == STATE_CONNECTED) return
         requestBattery()
         main.removeCallbacks(connectTimeout)
-        setState(STATE_CONNECTED, if (bound) "已连接" else "已连接（未完成绑定）")
+        setState(STATE_CONNECTED, "已连接")
         snap = snap.copy(updatedAt = System.currentTimeMillis())
         publish()
         main.postDelayed({
@@ -686,18 +857,6 @@ object WatchManager {
         val chars = "0123456789abcdef"
         val rnd = java.security.SecureRandom()
         return (0 until 8).map { chars[rnd.nextInt(chars.length)] }.joinToString("").toByteArray(Charsets.US_ASCII)
-    }
-
-    private fun bindStrategy(): String = when {
-        features.valid -> when {
-            features.sdk -> STRATEGY_CHALLENGE
-            features.deviceInfo -> STRATEGY_DEVICE_INFO
-            else -> STRATEGY_DIRECT
-        }
-        // 特性位读不到时按参考实现探测：设备信息 → 挑战 → 直接绑定
-        probeIdx % 3 == 0 -> STRATEGY_DEVICE_INFO
-        probeIdx % 3 == 1 -> STRATEGY_CHALLENGE
-        else -> STRATEGY_DIRECT
     }
 
     private fun requestBattery() {
@@ -783,6 +942,7 @@ object WatchManager {
         if (gatt == null || writeChar == null) return
         val bytes = HryFineProtocol.encode(group, sub, payload, version)
         val label = "group=%02X sub=%02X".format(group, sub)
+        LogStore.log("watch", "发送 $label 长度 ${payload.size}")
         var at = 0
         while (at < bytes.size) {
             val end = minOf(at + CHUNK_SIZE, bytes.size)
@@ -823,14 +983,31 @@ object WatchManager {
     }
 
     private fun handleNotify(chunk: ByteArray) {
+        // 蓝牙回调在 binder 线程，统一投递到主线程串行处理，避免重组与写队列竞争
+        main.post { onChunk(chunk) }
+    }
+
+    private fun onChunk(chunk: ByteArray) {
         for (raw in reassembler.feed(chunk)) {
             val frame = HryFineProtocol.parse(raw) ?: continue
-            if (!frame.isAck) enqueueAck(frame)
-            handleFrame(frame)
+            onFrameMain(frame)
         }
     }
 
+    private fun onFrameMain(frame: HryFineProtocol.Frame) {
+        if (frame.isAck) {
+            LogStore.log("watch", "收到 ACK %02X/%02X 状态 %d".format(frame.group, frame.sub, frame.payload.lastOrNull()?.toInt()?.and(0xFF) ?: -1))
+        } else {
+            enqueueAck(frame)
+        }
+        handleFrame(frame)
+    }
+
     private fun handleFrame(frame: HryFineProtocol.Frame) {
+        dispatchWaiters(frame)
+        if (!frame.isAck && frame.group != HryFineProtocol.GROUP_SPORTS) {
+            LogStore.log("watch", "收到 %02X/%02X 长度 %d".format(frame.group, frame.sub, frame.payload.size))
+        }
         when (frame.group) {
             HryFineProtocol.GROUP_SETTINGS -> if (!frame.isAck && frame.sub == HryFineProtocol.SUB_SETTINGS_REPLY) {
                 settings = HryFineProtocol.parseSettings(frame.payload)
@@ -851,36 +1028,8 @@ object WatchManager {
                     publish()
                 }
             }
-            HryFineProtocol.GROUP_CHALLENGE -> if (!frame.isAck) {
-                val expected = HryFineProtocol.challengeCode(challenge)
-                val got = frame.payload.getOrNull(1)?.toInt()?.and(0xFF)
-                LogStore.log("watch", "挑战校验：" + if (got == expected) "通过" else "不一致（期望 $expected，收到 $got）")
-            }
-            HryFineProtocol.GROUP_BIND -> {
-                val confirmed = (frame.isAck && (frame.payload.lastOrNull()?.toInt()?.and(0xFF) == 0x01)) ||
-                    (!frame.isAck && frame.payload.firstOrNull()?.toInt()?.and(0xFF) == 0x01)
-                if (confirmed) {
-                    val first = !bound
-                    val wasBinding = snap.state == STATE_BINDING
-                    onBindConfirmed(first)
-                    if (wasBinding) completeSession()
-                    if (first && !wasBinding && snap.state == STATE_CONNECTED) {
-                        // 手表可能在用户确认后才允许读数据，补一次同步
-                        main.postDelayed({
-                            writeFrame(HryFineProtocol.GROUP_SETTINGS, HryFineProtocol.SUB_SETTINGS_QUERY)
-                            syncHealth()
-                        }, 300)
-                    }
-                    if (bindAttempts < 2 && !frame.isAck) {
-                        bindAttempts++
-                        LogStore.log("watch", "手表要求确认绑定，重新发送绑定请求（第 $bindAttempts 次）")
-                        main.postDelayed({
-                            writeFrame(HryFineProtocol.GROUP_BIND, HryFineProtocol.SUB_BIND, Prefs.watchUserId.toByteArray(Charsets.US_ASCII))
-                        }, 400)
-                    }
-                } else {
-                    LogStore.log("watch", "绑定未确认（isAck=${frame.isAck} status=${frame.status}）")
-                }
+            HryFineProtocol.GROUP_BIND -> if (!bound && frame.isAck) {
+                if ((frame.payload.lastOrNull()?.toInt()?.and(0xFF)) == 0x01) onBound()
             }
             HryFineProtocol.GROUP_BAND_INFO -> if (!frame.isAck) {
                 LogStore.log("watch", "手表请求系统配对，开始创建绑定")
@@ -898,11 +1047,7 @@ object WatchManager {
                     HryFineProtocol.SUB_BIND_ACCEPT -> {
                         val first = frame.payload.firstOrNull()?.toInt()?.and(0xFF) == 0x01
                         LogStore.log("watch", "手表同意绑定" + if (first) "（首次绑定）" else "")
-                        if (!bound) {
-                            val wasBinding = snap.state == STATE_BINDING
-                            onBindConfirmed(first)
-                            if (wasBinding) completeSession()
-                        }
+                        if (!bound) onBound()
                     }
                     HryFineProtocol.SUB_BIND_REJECT -> {
                         LogStore.log("watch", "手表拒绝绑定，需要重新选择设备")
@@ -928,22 +1073,6 @@ object WatchManager {
         }
     }
 
-    private fun onBindConfirmed(first: Boolean) {
-        bound = true
-        LogStore.log("watch", "绑定已确认")
-        // 与官方 App 一致：绑定成功后打开手表配对开关
-        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
-        val dev = connectedDevice
-        if (dev != null) {
-            Prefs.watchAddress = dev.address
-            val name = safeNameOf(dev)
-            if (name.isNotBlank()) Prefs.watchName = name
-            LogStore.log("watch", "已保存手表 $name (${dev.address})，下次自动连接" + if (first) "（首次绑定）" else "")
-        }
-        snap = snap.copy(address = dev?.address ?: snap.address, name = Prefs.watchName)
-        publish()
-    }
-
     private fun applyHealth() {
         snap = snap.copy(
             steps = health.steps ?: snap.steps,
@@ -960,10 +1089,15 @@ object WatchManager {
 
     private fun scheduleReconnect() {
         if (!Prefs.watchEnabled || userStopped) return
+        if (reconnectScheduled) return
+        reconnectScheduled = true
         val delay = RECONNECT_DELAYS[reconnectIdx.coerceAtMost(RECONNECT_DELAYS.lastIndex)]
         reconnectIdx++
         LogStore.log("watch", "${delay / 1000} 秒后重连手表")
-        main.postDelayed({ connectSavedOrScan() }, delay)
+        main.postDelayed({
+            reconnectScheduled = false
+            connectSavedOrScan()
+        }, delay)
     }
 
     private fun setState(state: String, detail: String) {
