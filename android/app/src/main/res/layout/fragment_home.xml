@@ -157,15 +157,43 @@
                 <include layout="@layout/view_info_row" android:id="@+id/row_watch_bp" />
                 <include layout="@layout/view_info_row" android:id="@+id/row_watch_firmware" />
                 <include layout="@layout/view_info_row" android:id="@+id/row_watch_sync" />
-            </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/watch_candidates"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical"
-                android:visibility="gone" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btn_measure_heart"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/btn_measure_heart"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btn_measure_bp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="@string/btn_measure_bp"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btn_measure_spo2"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="@string/btn_measure_spo2"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"

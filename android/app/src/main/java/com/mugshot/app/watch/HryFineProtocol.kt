@@ -39,9 +39,16 @@ object HryFineProtocol {
     // 子命令
     const val SUB_TIME_SYNC = 0x01
     const val SUB_BIND = 0x00
+    const val SUB_PAIRING = 0x0A
     const val SUB_SETTINGS_QUERY = 0x00
     const val SUB_SETTINGS_REPLY = 0x09
     const val SUB_HEALTH_SYNC = 0x01
+    const val SUB_HEALTH_TODAY = 0x0A
+    const val SUB_BIND_ACCEPT = 0x08
+    const val SUB_BIND_REJECT = 0x09
+    const val SUB_MEASURE_HEART = 0x0D
+    const val SUB_MEASURE_BP = 0x0E
+    const val SUB_MEASURE_SPO2 = 0x1C
 
     private const val HEADER_DATA = 0xDF
     private const val HEADER_ACK = 0xFD

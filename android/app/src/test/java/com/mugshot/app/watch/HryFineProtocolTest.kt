@@ -30,6 +30,16 @@ class HryFineProtocolTest {
     }
 
     @Test
+    fun measureCommandMatchesOfficialFrame() {
+        // 官方 App 打开心率测量发出的帧：DF 00 06 F7 02 01 0D 00 01 01
+        val frame = HryFineProtocol.encode(0x02, 0x0D, byteArrayOf(0x01), 0x01)
+        assertArrayEquals(
+            byteArrayOf(0xDF.toByte(), 0x00, 0x06, 0xF7.toByte(), 0x02, 0x01, 0x0D, 0x00, 0x01, 0x01),
+            frame,
+        )
+    }
+
+    @Test
     fun parseRoundTripAndRejectBadHeader() {
         val raw = HryFineProtocol.encode(0x09, 0x00, ByteArray(0))
         val frame = HryFineProtocol.parse(raw)

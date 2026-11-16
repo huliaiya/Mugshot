@@ -65,6 +65,8 @@ object WatchManager {
     }
 
     private const val SCAN_TIMEOUT_MS = 15000L
+    private const val CHUNK_SIZE = 20
+    private const val WRITE_GAP_MS = 20L
     private const val CONNECT_TIMEOUT_MS = 15000L
     private const val CANDIDATE_PUBLISH_MS = 400L
     private const val HEALTH_WINDOW_MS = 9000L
@@ -100,6 +102,10 @@ object WatchManager {
     private var lastProject = ""
     private var bindAttempts = 0
     private var bound = false
+    private var challenge = ByteArray(0)
+    private var connectedDevice: android.bluetooth.BluetoothDevice? = null
+    private val writeQueue = ArrayDeque<Pair<ByteArray, String>>()
+    private var writeBusy = false
     private var probeIdx = 0
     private var reconnectIdx = 0
     private var suppressReconnect = false
@@ -112,6 +118,25 @@ object WatchManager {
             LogStore.log("watch", "连接超时，断开后重试")
             failAndRetry("连接手表超时，请确认手表在附近并已开机")
         }
+    }
+
+    private val writeTick = Runnable {
+        writeBusy = false
+        pumpWrite()
+    }
+
+    private fun pumpWrite() {
+        if (writeBusy) return
+        val g = gatt
+        val ch = writeChar
+        if (g == null || ch == null) {
+            writeQueue.clear()
+            return
+        }
+        val item = writeQueue.removeFirstOrNull() ?: return
+        writeBusy = true
+        writeBytes(g, ch, item.first, item.second)
+        main.postDelayed(writeTick, WRITE_GAP_MS)
     }
 
     private fun failAndRetry(message: String) {
@@ -152,7 +177,7 @@ object WatchManager {
         val g = gatt
         if (g != null && snap.state == STATE_CONNECTED) {
             requestBattery()
-            syncHealth()
+            syncToday()
         } else {
             reconnectIdx = 0
             connectSavedOrScan()
@@ -316,9 +341,13 @@ object WatchManager {
         connect(dev)
     }
 
-    fun rescan() {
+    fun rescan(disconnect: Boolean = false) {
         if (!Prefs.watchEnabled || userStopped) return
         reconnectIdx = 0
+        if (disconnect) {
+            suppressReconnect = true
+            disconnectGatt()
+        }
         startScan()
     }
 
@@ -335,7 +364,8 @@ object WatchManager {
         val uuids = record?.serviceUuids?.map { it.uuid.toString().lowercase() } ?: emptyList()
         if (uuids.contains(HryFineProtocol.SERVICE_UUID)) return true
         val name = safeName(result).lowercase()
-        if (name.contains("watch") || name.contains("smart") || name.contains("手表") || name.contains("hry")) return true
+        if (name.contains("watch") || name.contains("smart") || name.contains("手表")) return true
+        if (name.startsWith("b0") || name.startsWith("h2") || name.startsWith("hy")) return true
         val md = record?.manufacturerSpecificData
         if (md != null) {
             for (i in 0 until md.size()) {
@@ -363,6 +393,7 @@ object WatchManager {
         bindAttempts = 0
         bound = false
         suppressReconnect = false
+        connectedDevice = device
         setState(STATE_CONNECTING, "正在连接 ${safeNameOf(device)}…")
         LogStore.log("watch", "连接手表 ${safeNameOf(device)} (${device.address})")
         try {
@@ -390,6 +421,10 @@ object WatchManager {
         batteryChar = null
         readQueue.clear()
         readStarted = false
+        writeQueue.clear()
+        writeBusy = false
+        main.removeCallbacks(writeTick)
+        connectedDevice = null
         version = 0x01
         features = HryFineProtocol.Features(false, false, false, false, false)
         main.removeCallbacks(readTimeout)
@@ -597,24 +632,39 @@ object WatchManager {
         val strategy = bindStrategy()
         LogStore.log("watch", "绑定路径：$strategy")
         if (strategy == STRATEGY_CHALLENGE) {
-            main.postDelayed({ writeFrame(HryFineProtocol.GROUP_CHALLENGE, 0x00, userId) }, 150)
+            challenge = newChallenge()
+            main.postDelayed({ writeFrame(HryFineProtocol.GROUP_CHALLENGE, 0x00, challenge) }, 150)
             main.postDelayed({ writeFrame(HryFineProtocol.GROUP_CHALLENGE_CONFIRM, 0x00, byteArrayOf(0x00)) }, 1200)
         }
         if (strategy != STRATEGY_DIRECT) {
             main.postDelayed({ writeFrame(HryFineProtocol.GROUP_DEVICE_INFO, 0x00) }, 1700)
         }
         main.postDelayed({ writeFrame(HryFineProtocol.GROUP_BIND, HryFineProtocol.SUB_BIND, userId) }, 2100)
-        main.postDelayed({ writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_TIME_SYNC, HryFineProtocol.packDateTime(System.currentTimeMillis())) }, 2900)
-        main.postDelayed({ writeFrame(HryFineProtocol.GROUP_SETTINGS, HryFineProtocol.SUB_SETTINGS_QUERY) }, 3300)
-        main.postDelayed({ syncHealth() }, 3700)
         main.postDelayed({
             if (gatt == null || snap.state != STATE_BINDING) return@postDelayed
-            requestBattery()
-            main.removeCallbacks(connectTimeout)
-            setState(STATE_CONNECTED, if (bound) "已连接" else "已连接（未完成绑定）")
-            snap = snap.copy(updatedAt = System.currentTimeMillis())
-            publish()
+            completeSession()
         }, HEALTH_WINDOW_MS)
+    }
+
+    private fun completeSession() {
+        if (snap.state == STATE_CONNECTED) return
+        requestBattery()
+        main.removeCallbacks(connectTimeout)
+        setState(STATE_CONNECTED, if (bound) "已连接" else "已连接（未完成绑定）")
+        snap = snap.copy(updatedAt = System.currentTimeMillis())
+        publish()
+        main.postDelayed({
+            writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_TIME_SYNC, HryFineProtocol.packDateTime(System.currentTimeMillis()))
+        }, 300)
+        main.postDelayed({ writeFrame(HryFineProtocol.GROUP_SETTINGS, HryFineProtocol.SUB_SETTINGS_QUERY) }, 800)
+        main.postDelayed({ syncHealth() }, 1300)
+        main.postDelayed({ requestBattery() }, 1800)
+    }
+
+    private fun newChallenge(): ByteArray {
+        val chars = "0123456789abcdef"
+        val rnd = java.security.SecureRandom()
+        return (0 until 8).map { chars[rnd.nextInt(chars.length)] }.joinToString("").toByteArray(Charsets.US_ASCII)
     }
 
     private fun bindStrategy(): String = when {
@@ -638,6 +688,29 @@ object WatchManager {
         }
     }
 
+    /** 触发手表测量：心率 / 血压 / 血氧 */
+    fun measureHeartRate() = measure(HryFineProtocol.SUB_MEASURE_HEART)
+
+    fun measureBloodPressure() = measure(HryFineProtocol.SUB_MEASURE_BP)
+
+    fun measureSpo2() = measure(HryFineProtocol.SUB_MEASURE_SPO2)
+
+    private fun measure(sub: Int) {
+        if (snap.state != STATE_CONNECTED) return
+        writeFrame(HryFineProtocol.GROUP_GENERAL, sub, byteArrayOf(0x01))
+        LogStore.log("watch", "请求测量 sub=%02X".format(sub))
+    }
+
+    private fun syncToday() {
+        writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_TODAY)
+        main.postDelayed({
+            if (snap.state == STATE_CONNECTED) {
+                snap = snap.copy(updatedAt = System.currentTimeMillis())
+                publish()
+            }
+        }, 1500)
+    }
+
     private fun syncHealth() {
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
         main.postDelayed({
@@ -651,9 +724,22 @@ object WatchManager {
 
     @SuppressLint("MissingPermission")
     private fun writeFrame(group: Int, sub: Int, payload: ByteArray = ByteArray(0)) {
-        val g = gatt ?: return
-        val ch = writeChar ?: return
-        writeBytes(g, ch, HryFineProtocol.encode(group, sub, payload, version), "group=%02X sub=%02X".format(group, sub))
+        if (gatt == null || writeChar == null) return
+        val bytes = HryFineProtocol.encode(group, sub, payload, version)
+        val label = "group=%02X sub=%02X".format(group, sub)
+        var at = 0
+        while (at < bytes.size) {
+            val end = minOf(at + CHUNK_SIZE, bytes.size)
+            writeQueue.addLast(bytes.copyOfRange(at, end) to label)
+            at = end
+        }
+        pumpWrite()
+    }
+
+    private fun enqueueAck(frame: HryFineProtocol.Frame) {
+        if (gatt == null || writeChar == null) return
+        writeQueue.addLast(HryFineProtocol.ack(frame) to "ack group=%02X sub=%02X".format(frame.group, frame.sub))
+        pumpWrite()
     }
 
     @SuppressLint("MissingPermission")
@@ -680,15 +766,9 @@ object WatchManager {
     }
 
     private fun handleNotify(chunk: ByteArray) {
-        val g = gatt
         for (raw in reassembler.feed(chunk)) {
             val frame = HryFineProtocol.parse(raw) ?: continue
-            if (!frame.isAck) {
-                val ch = writeChar
-                if (g != null && ch != null) {
-                    writeBytes(g, ch, HryFineProtocol.ack(frame), "ack group=%02X sub=%02X".format(frame.group, frame.sub))
-                }
-            }
+            if (!frame.isAck) enqueueAck(frame)
             handleFrame(frame)
         }
     }
@@ -715,7 +795,7 @@ object WatchManager {
                 }
             }
             HryFineProtocol.GROUP_CHALLENGE -> if (!frame.isAck) {
-                val expected = HryFineProtocol.challengeCode(Prefs.watchUserId.toByteArray(Charsets.US_ASCII))
+                val expected = HryFineProtocol.challengeCode(challenge)
                 val got = frame.payload.getOrNull(1)?.toInt()?.and(0xFF)
                 LogStore.log("watch", "挑战校验：" + if (got == expected) "通过" else "不一致（期望 $expected，收到 $got）")
             }
@@ -724,9 +804,10 @@ object WatchManager {
                     (!frame.isAck && frame.payload.firstOrNull()?.toInt()?.and(0xFF) == 0x01)
                 if (confirmed) {
                     val first = !bound
-                    bound = true
-                    LogStore.log("watch", "绑定已确认")
-                    if (first && snap.state == STATE_CONNECTED) {
+                    val wasBinding = snap.state == STATE_BINDING
+                    onBindConfirmed(first)
+                    if (wasBinding) completeSession()
+                    if (first && !wasBinding && snap.state == STATE_CONNECTED) {
                         // 手表可能在用户确认后才允许读数据，补一次同步
                         main.postDelayed({
                             writeFrame(HryFineProtocol.GROUP_SETTINGS, HryFineProtocol.SUB_SETTINGS_QUERY)
@@ -745,18 +826,54 @@ object WatchManager {
                 }
             }
             HryFineProtocol.GROUP_BUTTONS -> if (!frame.isAck) {
-                val label = when (frame.sub) {
-                    0x01 -> "查找手机"
-                    0x02 -> "遥控拍照"
-                    0x0A -> "音乐播放"
-                    0x0B -> "音乐暂停"
-                    0x0C -> "音乐上一首"
-                    0x0D -> "音乐下一首"
-                    else -> "按键事件 0x%02X".format(frame.sub)
+                when (frame.sub) {
+                    HryFineProtocol.SUB_BIND_ACCEPT -> {
+                        val first = frame.payload.firstOrNull()?.toInt()?.and(0xFF) == 0x01
+                        LogStore.log("watch", "手表同意绑定" + if (first) "（首次绑定）" else "")
+                        // 绑定成功后打开手表的配对开关
+                        writeFrame(HryFineProtocol.GROUP_GENERAL, HryFineProtocol.SUB_PAIRING, byteArrayOf(0x02))
+                        if (!bound) {
+                            val wasBinding = snap.state == STATE_BINDING
+                            onBindConfirmed(first)
+                            if (wasBinding) completeSession()
+                        }
+                    }
+                    HryFineProtocol.SUB_BIND_REJECT -> {
+                        LogStore.log("watch", "手表拒绝绑定，需要重新选择设备")
+                        suppressReconnect = true
+                        Prefs.watchAddress = ""
+                        disconnectGatt()
+                        setState(STATE_ERROR, "手表拒绝绑定，请重新扫描并在手表上同意")
+                    }
+                    else -> {
+                        val label = when (frame.sub) {
+                            0x01 -> "查找手机"
+                            0x02 -> "遥控拍照"
+                            0x0A -> "音乐播放"
+                            0x0B -> "音乐暂停"
+                            0x0C -> "音乐上一首"
+                            0x0D -> "音乐下一首"
+                            else -> "按键事件 0x%02X".format(frame.sub)
+                        }
+                        LogStore.log("watch", "手表事件：$label")
+                    }
                 }
-                LogStore.log("watch", "手表事件：$label")
             }
         }
+    }
+
+    private fun onBindConfirmed(first: Boolean) {
+        bound = true
+        LogStore.log("watch", "绑定已确认")
+        val dev = connectedDevice
+        if (dev != null) {
+            Prefs.watchAddress = dev.address
+            val name = safeNameOf(dev)
+            if (name.isNotBlank()) Prefs.watchName = name
+            LogStore.log("watch", "已保存手表 $name (${dev.address})，下次自动连接" + if (first) "（首次绑定）" else "")
+        }
+        snap = snap.copy(address = dev?.address ?: snap.address, name = Prefs.watchName)
+        publish()
     }
 
     private fun applyHealth() {

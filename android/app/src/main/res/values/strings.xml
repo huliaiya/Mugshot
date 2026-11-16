@@ -135,6 +135,20 @@
     <string name="watch_perm_denied">蓝牙权限被拒绝，手表功能无法使用</string>
     <string name="watch_need_consent">请先同意隐私政策并完成服务器配置</string>
     <string name="watch_pick_hint">附近可连接的设备，点选手表进行配对（首次连接需在手表上确认）：</string>
+    <string name="watch_connect_title">连接手表</string>
+    <string name="watch_connect_tip">开启手表并靠近手机，选中后会自动完成绑定；连接成功会保存设备，下次打开自动连回</string>
+    <string name="watch_connect_done">%1$s 已连接，设备已保存</string>
+    <string name="watch_connect_saved">已保存该手表，下次打开会自动连接</string>
+    <string name="watch_no_device">没有发现设备，点击下方按钮重新扫描</string>
+    <string name="watch_tag_saved">已保存</string>
+    <string name="watch_tag_likely">可能是手表</string>
+    <string name="btn_connect_rescan">重新扫描</string>
+    <string name="btn_back">返回</string>
+    <string name="btn_measure_heart">测心率</string>
+    <string name="btn_measure_bp">测血压</string>
+    <string name="btn_measure_spo2">测血氧</string>
+    <string name="watch_measure_tip">已下发测量指令，请保持手表佩戴并等待结果</string>
+    <string name="watch_need_connect">请先在连接页选择并连接手表</string>
     <string name="home_detail_service">后台服务运行中</string>
     <string name="home_detail_offline">服务未运行，点击"重新测试连接"检查配置</string>
 

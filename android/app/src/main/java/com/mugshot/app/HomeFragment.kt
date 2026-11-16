@@ -1,6 +1,7 @@
 package com.mugshot.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -46,7 +47,6 @@ class HomeFragment : Fragment(), WsClient.Listener {
     private lateinit var watchTitle: TextView
     private lateinit var watchStatus: TextView
     private lateinit var watchBody: LinearLayout
-    private lateinit var watchCandidates: LinearLayout
 
     private val watchListener: (WatchManager.Snapshot) -> Unit = { s ->
         if (view != null) renderWatch(s)
@@ -96,12 +96,14 @@ class HomeFragment : Fragment(), WsClient.Listener {
         watchTitle = view.findViewById(R.id.watch_title)
         watchStatus = view.findViewById(R.id.watch_status)
         watchBody = view.findViewById(R.id.watch_body)
-        watchCandidates = view.findViewById(R.id.watch_candidates)
         watchSwitch.isChecked = Prefs.watchEnabled
         watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
         view.findViewById<Button>(R.id.btn_watch_connect).setOnClickListener {
-            if (Prefs.watchEnabled) WatchManager.rescan() else setWatchEnabled(true)
+            startActivity(Intent(requireContext(), WatchConnectActivity::class.java))
         }
+        view.findViewById<Button>(R.id.btn_measure_heart).setOnClickListener { measure { WatchManager.measureHeartRate() } }
+        view.findViewById<Button>(R.id.btn_measure_bp).setOnClickListener { measure { WatchManager.measureBloodPressure() } }
+        view.findViewById<Button>(R.id.btn_measure_spo2).setOnClickListener { measure { WatchManager.measureSpo2() } }
         view.findViewById<Button>(R.id.btn_watch_sync).setOnClickListener {
             if (Prefs.watchEnabled) {
                 WatchManager.refreshNow()
@@ -403,39 +405,14 @@ class HomeFragment : Fragment(), WsClient.Listener {
             R.string.label_watch_sync,
             if (s.updatedAt > 0) timeFmt.format(Date(s.updatedAt)) else getString(R.string.value_never),
         )
-        renderWatchCandidates(s)
     }
 
-    private fun renderWatchCandidates(s: WatchManager.Snapshot) {
-        watchCandidates.removeAllViews()
-        if (!s.enabled || s.connected || s.candidates.isEmpty()) {
-            watchCandidates.visibility = View.GONE
-            return
-        }
-        watchCandidates.visibility = View.VISIBLE
-        val hint = TextView(requireContext()).apply {
-            text = getString(R.string.watch_pick_hint)
-            setTextColor(ContextCompat.getColor(requireContext(), R.color.text_sub))
-            textSize = 12f
-            setPadding(0, 0, 0, 4)
-        }
-        watchCandidates.addView(hint)
-        for (c in s.candidates) {
-            val base = if (c.name.isBlank()) c.address else "${c.name}  (${c.rssi} dBm)"
-            val label = if (c.likelyWatch) "$base  · 可能是手表" else base
-            val btn = Button(requireContext()).apply {
-                text = label
-                textSize = 13f
-                isAllCaps = false
-                setOnClickListener { WatchManager.connectCandidate(c.address, c.name) }
-            }
-            watchCandidates.addView(
-                btn,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ),
-            )
+    private fun measure(action: () -> Unit) {
+        if (WatchManager.snapshot().connected) {
+            action()
+            Toast.makeText(requireContext(), R.string.watch_measure_tip, Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(requireContext(), R.string.watch_need_connect, Toast.LENGTH_SHORT).show()
         }
     }
 
