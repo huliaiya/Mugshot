@@ -3,6 +3,7 @@ package com.mugshot.app.watch
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
@@ -728,7 +729,10 @@ object WatchManager {
         quickDrops = 0
         main.postDelayed({
             try {
-                if (dev != null && dev.bondState != android.bluetooth.BluetoothDevice.BOND_NONE) dev.removeBond()
+                if (dev != null && dev.bondState != BluetoothDevice.BOND_NONE) {
+                    // removeBond 未暴露在公开 SDK，按反射调用
+                    BluetoothDevice::class.java.getMethod("removeBond").invoke(dev)
+                }
             } catch (e: Exception) {
                 LogStore.log("watch", "取消系统配对失败：" + (e.message ?: "未知错误"))
             }
