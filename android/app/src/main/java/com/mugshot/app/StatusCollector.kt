@@ -166,7 +166,7 @@ object StatusCollector {
     private var countCacheAt = 0L
 
     /**
-     * 最近 24 小时各应用前台使用时长（top 8）。
+     * 最近 24 小时各应用前台使用时长（全部有使用时长的应用，按时长倒序）。
      * 用 queryAndAggregateUsageStats 跨区间聚合，比 queryUsageStats 更贴近
      * “连续 24 小时”语义（后者按日切桶，凌晨会只剩当天零点后的数据）。
      * 30 秒缓存：上报间隔最短 2 秒，跨进程查询没必要每次都跑。
@@ -202,7 +202,6 @@ object StatusCollector {
             }
             .filter { it.min > 0 }
             .sortedByDescending { it.min }
-            .take(8)
             .toList()
         return usageCache
     }

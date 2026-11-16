@@ -89,7 +89,7 @@ type ReportPayload struct {
 	ForegroundActivity string              `json:"foreground_activity,omitempty"` // current focused activity (pkg/class)
 	ForegroundApps     []ForegroundAppInfo `json:"foreground_apps,omitempty"`     // multi-window visible apps, focused first
 	BackgroundApps     []ForegroundAppInfo `json:"background_apps,omitempty"`     // recently used, not on screen (top 5)
-	Usage24h           []UsageApp          `json:"usage_24h,omitempty"`           // per-app foreground time, trailing 24h, top 8
+	Usage24h           []UsageApp          `json:"usage_24h,omitempty"`           // per-app foreground time, trailing 24h, all apps
 	ScreenOn           bool                `json:"screen_on"`
 	BatteryLevel       int                 `json:"battery_level"`            // 0-100, -1 unknown
 	BatteryTempC       float64             `json:"battery_temp_c,omitempty"` // battery temperature, celsius

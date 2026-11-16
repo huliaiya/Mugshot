@@ -51,7 +51,7 @@
         <div class="badge {{ d.online ? "on" : "off" }}">{{ d.online ? "在线" : "离线" }}</div>
       </div>
       {{ if d.has_data }}
-      <div class="total">24 小时合计使用 <b>{{ d.total_text }}</b></div>
+      <div class="total">24 小时合计使用 <b>{{ d.total_text }}</b>{{ d.usage_count }}</div>
       {{ each d.apps a }}
       <div class="u">
         <div class="line">

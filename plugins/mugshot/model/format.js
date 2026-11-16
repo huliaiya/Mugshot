@@ -217,7 +217,8 @@ export function allStatusView(d) {
     chargingText: p.charging || p.battery_status ? batteryStatusText(p) : "无数据",
     report_time_text: formatAgo(d.last_report_at || d.last_heartbeat),
     usage_total: usage.length ? formatMinutes(usage.reduce((sum, u) => sum + (Number(u?.min) || 0), 0)) : "",
-    usage: usage.slice(0, 4).map(u => ({
+    usage_count: usage.length ? `，共 ${usage.length} 个应用` : "",
+    usage: [...usage].sort((a, b) => (Number(b?.min) || 0) - (Number(a?.min) || 0)).map(u => ({
       app: u?.app || u?.pkg || "未知应用",
       time: formatMinutes(u?.min),
       count_text: typeof u?.count === "number" && u.count > 0 ? `${u.count}次` : "",
