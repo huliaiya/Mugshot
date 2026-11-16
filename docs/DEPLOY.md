@@ -4,15 +4,15 @@ Mugshot 由三部分组成：
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| mugshot-server | `server/` | Go 服务端，运行在 Ubuntu 26.04 ARM64 服务器 |
+| mugshot-server | `server/` | Go 服务端，运行在 Ubuntu 22.04/24.04/26.04 服务器（ARM64 与 x86_64 均有预编译包） |
 | Mugshot 插件 | `plugins/mugshot/` | TRSS-Yunzai ESM 插件，与 Yunzai 同机部署 |
 | Mugshot App | `android/` | Android 上报端，安装在你的手机上 |
 
 数据流：手机 App --(WebSocket / HTTP)--> mugshot-server <--(WebSocket / HTTP)-- Yunzai 插件。
 
-## 1. 部署 mugshot-server（Ubuntu ARM64）
+## 1. 部署 mugshot-server（Ubuntu ARM64 / x86_64）
 
-### 1.1 方式一：.deb 包一键安装（推荐，Ubuntu 26.04 ARM64）
+### 1.1 方式一：.deb 包一键安装（推荐，ARM64 与 x86_64）
 
 从 GitHub Release 下载 `mugshot-server_<版本>_arm64.deb`，然后：
 
@@ -55,13 +55,13 @@ curl http://127.0.0.1:8080/health        # 验证服务在跑
 
 ### 1.2 方式二：install.sh 脚本安装
 
-从 GitHub Release 下载 `mugshot-server_linux_arm64_<版本>.tar.gz` 并解压，然后：
+按架构下载 tar 包（x86_64 用 `mugshot-server_linux_amd64_<版本>.tar.gz`，ARM64 用 `..._arm64_...`）并解压，然后：
 
 ```bash
 sudo ./install.sh
 ```
 
-脚本会：创建 `mugshot` 系统用户、安装到 `/opt/mugshot`、生成 `config.json`（含自动生成的 token，App 与插件共用同一个）、注册并启动 systemd 服务。
+脚本会：创建 `mugshot` 系统用户、安装到 `/opt/mugshot`、生成 `config.json`（含自动生成的 token，App 与插件共用同一个）、安装 `mugshot-ctl` 到 `/usr/local/bin`、注册并启动 systemd 服务。
 
 ### 1.3 方式三：手动部署
 
@@ -95,14 +95,39 @@ sudo systemctl enable --now mugshot-server
 systemctl status mugshot-server
 ```
 
-### 1.4 验证
+### 1.4 命令行管理（SSH / 无桌面服务器）
+
+`mugshot-ctl` 不带参数时是交互式菜单；带子命令时适合脚本与 SSH 单次执行：
+
+```bash
+sudo mugshot-ctl status            # 服务状态 + /health + 在线设备数
+sudo mugshot-ctl devices           # 设备列表（JSON，不唤醒手机）
+sudo mugshot-ctl show 我的手机      # 单台设备最近快照详情
+sudo mugshot-ctl token             # 显示统一 Token（App 与插件共用）
+sudo mugshot-ctl config            # 查看完整配置
+sudo mugshot-ctl set listen=:8080 token=auto
+sudo mugshot-ctl restart           # 配置修改后重启生效
+sudo mugshot-ctl logs 100          # 最近 100 行日志；logs -f 实时跟随
+sudo mugshot-ctl start|stop        # 启动 / 停止服务
+```
+
+也可以直接用服务端二进制管理配置，不依赖 jq：
+
+```bash
+/usr/bin/mugshot-server --config /etc/mugshot/config.json --print-config
+sudo /usr/bin/mugshot-server --config /etc/mugshot/config.json --set token=auto --set retention_days=14
+```
+
+> `mugshot-ctl set` 只改配置文件，不热切换端口；改完执行 `mugshot-ctl restart`。App 与插件使用同一个 Token。
+
+### 1.5 验证
 
 ```bash
 curl -s http://127.0.0.1:8080/health
 curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:8080/devices
 ```
 
-### 1.5 systemd 说明
+### 1.6 systemd 说明
 
 内置 `mugshot-server.service` 特性：
 
@@ -114,7 +139,7 @@ curl -s -H "Authorization: Bearer <token>" http://127.0.0.1:8080/devices
 
 > 自更新说明：`#群主更新` 触发后，服务端会从 GitHub Release（可配 `github_mirror` 前缀加速）下载新二进制替换自身，然后主动退出，由 systemd `Restart=always` 拉起新版本，约 5~10 秒恢复。
 
-### 1.6 公网暴露与 TLS（反向代理转发 HTTPS + WebSocket）
+### 1.7 公网暴露与 TLS（反向代理转发 HTTPS + WebSocket）
 
 仅在内网使用时无需 TLS。公网部署强烈建议前置 Nginx / Caddy 做 HTTPS 终结并透传 WebSocket。
 两个 WS 端点（`/ws/device` 设备、`/ws/plugin` 插件）都**必须**正确转发 `Upgrade` 与 `Connection` 头，
@@ -286,7 +311,7 @@ App 启动与每日会检查 GitHub Releases（主源 api.github.com，失败自
 | Workflow | 触发 | 产物 |
 |----------|------|------|
 | build-android | push android/** 或 tag `v*` | 已签名 release APK（包名 `com.Mugshot.huli`） |
-| build-linux-arm64 | push server/** / plugins/** 或 tag `v*` | `mugshot-server_<构建哈希>_arm64.deb`（内含 GUI 面板）、`mugshot-server_linux_arm64_<构建哈希>.tar.gz`、裸二进制（固定名，供服务端自更新）、`mugshot-gui_linux_arm64`（GUI 面板）、`mugshot-plugin_<ver>.tar.gz` |
+| build-linux | push 或 tag `v*` | ARM64 与 x86_64 各一套：`mugshot-server_<构建哈希>_<arch>.deb`（内含 GUI 面板）、`mugshot-server_linux_<arch>_<构建哈希>.tar.gz`、裸二进制（固定名，供服务端自更新）、`mugshot-gui_linux_<arch>`、`mugshot-plugin_<ver>.tar.gz` |
 
 服务端软件版本号 = 构建时的 Git 短哈希（`mugshot-server --version`、`/version` 接口可见）；更新检查按发布 tag 比较，与产物名中的哈希互不影响。
 

@@ -3,7 +3,7 @@
 # 无需 root 即可打开；查看配置/重启服务等操作会按需请求 sudo
 # 主题：跟随系统 / 深色 / 浅色（存于 ~/.config/mugshot/ctl.conf）
 SVC="mugshot-server"
-CFG="/etc/mugshot/config.json"
+CFG="${MUGSHOT_CONFIG:-/etc/mugshot/config.json}"
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/mugshot"
 CONF_FILE="$CONF_DIR/ctl.conf"
 
@@ -153,10 +153,152 @@ choose_theme() {
     sleep 1
 }
 
+
+# ---------- 命令行模式（SSH / 无桌面环境） ----------
+
+die() { echo "$(c "$C_ERR" "$*")" >&2; exit 1; }
+
+server_bin() {
+    if [ -n "${MUGSHOT_BIN:-}" ] && [ -x "$MUGSHOT_BIN" ]; then
+        echo "$MUGSHOT_BIN"; return
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local candidate
+    for candidate in /usr/bin/mugshot-server /usr/local/bin/mugshot-server \
+        "$self_dir/mugshot-server" "$self_dir/../mugshot-server"; do
+        if [ -x "$candidate" ]; then echo "$candidate"; return; fi
+    done
+    command -v mugshot-server 2>/dev/null || true
+}
+
+need_root() {
+    if [ "$(id -u)" = "0" ]; then "$@"; else sudo -p "[sudo] 密码: " "$@"; fi
+}
+
+TOKEN_CACHE=""
+read_token() {
+    if [ -n "$TOKEN_CACHE" ]; then printf '%s' "$TOKEN_CACHE"; return; fi
+    local bin; bin="$(server_bin)"
+    [ -n "$bin" ] || die "找不到 mugshot-server 可执行文件，可用 MUGSHOT_BIN 指定路径"
+    local json
+    json="$(need_root "$bin" -config "$CFG" -print-config)" || die "读取配置失败（需要 root 权限）"
+    if command -v python3 >/dev/null 2>&1; then
+        TOKEN_CACHE="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')"
+    else
+        TOKEN_CACHE="$(printf '%s' "$json" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+    fi
+    printf '%s' "$TOKEN_CACHE"
+}
+
+BASE_CACHE=""
+api_base() {
+    if [ -n "$BASE_CACHE" ]; then printf '%s' "$BASE_CACHE"; return; fi
+    local listen
+    listen="$(need_root "$(server_bin)" -config "$CFG" -print-config 2>/dev/null | sed -n 's/.*"listen"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+    listen="${listen:-:8080}"
+    case "$listen" in
+        :*) BASE_CACHE="http://127.0.0.1${listen}" ;;
+        *:*) BASE_CACHE="http://${listen}" ;;
+        *) BASE_CACHE="http://${listen}:8080" ;;
+    esac
+    printf '%s' "$BASE_CACHE"
+}
+
+api_get() {
+    local path="$1" token
+    token="$(read_token)"
+    [ -n "$token" ] || die "配置里没有 token"
+    curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$(api_base)${path}"
+}
+
+pretty_json() {
+    if command -v python3 >/dev/null 2>&1; then python3 -m json.tool; else cat; fi
+}
+
+cli_usage() {
+    cat <<'USAGE'
+用法: mugshot-ctl <命令> [参数]
+  不带参数            打开交互式管理菜单
+  status              服务状态 + 健康检查 + 在线设备数
+  health              只输出 /health JSON
+  devices             设备列表（JSON）
+  show <名称|ID>      单台设备详情（缓存快照，不唤醒手机）
+  token               显示统一 Token
+  config              显示完整配置
+  set k=v [k=v ...]   修改配置（token=auto 生成随机令牌），改完需 restart
+  start|stop|restart  服务启停
+  logs [行数]         最近日志（默认 80 行），logs -f 实时跟随
+示例:
+  sudo mugshot-ctl set listen=:8080 token=auto
+  mugshot-ctl show 我的手机
+USAGE
+}
+
+cli_status() {
+    echo "服务状态: $(systemctl is-active "$SVC" 2>/dev/null || echo unknown)"
+    systemctl show "$SVC" -p ActiveState -p SubState -p MainPID 2>/dev/null || true
+    echo
+    if command -v curl >/dev/null 2>&1; then
+        echo "健康检查:"
+        curl -fsS --max-time 5 "$(api_base)/health" 2>/dev/null | pretty_json || echo "  (HTTP 无响应)"
+    fi
+}
+
+cli_show() {
+    local query="$1"
+    [ -n "$query" ] || die "请提供设备名称或 ID"
+    local encoded
+    if command -v python3 >/dev/null 2>&1; then
+        encoded="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$query")"
+    else
+        encoded="$query"
+    fi
+    api_get "/status?device=${encoded}&fresh=0" | pretty_json
+}
+
+cli_set() {
+    [ "$#" -gt 0 ] || die "请提供至少一个 key=value"
+    local bin; bin="$(server_bin)"
+    [ -n "$bin" ] || die "找不到 mugshot-server 可执行文件"
+    need_root "$bin" -config "$CFG" -set "$@" || exit 1
+    echo "配置已写入 $CFG；重启服务生效: mugshot-ctl restart"
+}
+
+run_cli() {
+    case "$1" in
+        status) cli_status ;;
+        health) curl -fsS --max-time 5 "$(api_base)/health" | pretty_json ;;
+        devices) api_get "/devices" | pretty_json ;;
+        show) shift; cli_show "${1:-}" ;;
+        token) read_token; echo ;;
+        config) need_root "$(server_bin)" -config "$CFG" -print-config ;;
+        set) shift; cli_set "$@" ;;
+        start) need_root systemctl start "$SVC" && echo "已启动" ;;
+        stop) need_root systemctl stop "$SVC" && echo "已停止" ;;
+        restart) need_root systemctl restart "$SVC" && echo "已重启" ;;
+        logs)
+            shift
+            if [ "${1:-}" = "-f" ]; then
+                journalctl -u "$SVC" -f --no-pager
+            else
+                journalctl -u "$SVC" -n "${1:-80}" --no-pager
+            fi
+            ;;
+        help|-h|--help) cli_usage ;;
+        *) cli_usage; exit 2 ;;
+    esac
+}
+
 # ---------- 主循环 ----------
 
 load_theme
 apply_colors
+
+if [ "$#" -gt 0 ]; then
+    run_cli "$@"
+    exit $?
+fi
 
 while true; do
     clear

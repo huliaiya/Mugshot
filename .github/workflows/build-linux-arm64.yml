@@ -1,8 +1,8 @@
-# mugshot-server Linux ARM64 构建（适配 Ubuntu 26.04 ARM64 服务器）
+# mugshot-server Linux 构建（ARM64 + x86_64，适配 Ubuntu 22.04/24.04/26.04 服务器）
 # - push 到 master/main：构建并刷新滚动预发布 dev（tar.gz + 裸二进制 + 插件包）
 # - push tag v* 时：构建并附加到 GitHub Release（tar.gz + 裸二进制）
 # - 同时打包 Yunzai 插件目录为 mugshot-plugin.tar.gz，供插件更新器下载
-name: build-linux-arm64
+name: build-linux
 
 on:
   push:
@@ -15,7 +15,16 @@ permissions:
 
 jobs:
   server:
-    runs-on: ubuntu-24.04-arm
+    # 同一套源码分别构建 ARM64 与 x86_64 产物；两者都可用 .deb 或 tar.gz 安装
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,54 +62,55 @@ jobs:
           CGO_ENABLED: "1"
         run: go vet ./...
 
-      - name: Build server (linux/arm64)
+      - name: Build server (linux/${{ matrix.arch }})
         working-directory: server
         env:
           CGO_ENABLED: "0"
           GOOS: linux
-          GOARCH: arm64
+          GOARCH: ${{ matrix.arch }}
         run: |
           go build -trimpath \
             -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.releaseTag=${{ steps.ver.outputs.release_tag }} -X main.commit=${GITHUB_SHA::8}" \
             -o mugshot-server .
 
-      - name: Build GUI (linux/arm64)
+      - name: Build GUI (linux/${{ matrix.arch }})
         working-directory: server
         run: |
-          # GUI 走本机原生 arm64 构建，CGO 打开
+          # GUI 走本机原生构建，CGO 打开
           go build -trimpath -ldflags "-s -w" -o mugshot-gui ./cmd/mugshot-gui
 
       - name: Build .deb package
         working-directory: server
         run: |
           chmod +x build-deb.sh
-          ./build-deb.sh "${{ steps.ver.outputs.version }}" ./mugshot-server arm64 ./mugshot-gui
+          ./build-deb.sh "${{ steps.ver.outputs.version }}" ./mugshot-server ${{ matrix.arch }} ./mugshot-gui
 
       - name: Package server
         working-directory: server
         run: |
           VER="${{ steps.ver.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
           mkdir -p /tmp/pkg/mugshot
           cp mugshot-server /tmp/pkg/mugshot/
-          cp mugshot-server.service install.sh /tmp/pkg/mugshot/
-          tar -czf "mugshot-server_linux_arm64_${VER}.tar.gz" -C /tmp/pkg mugshot
-          cp "mugshot-server_linux_arm64_${VER}.tar.gz" ../
+          cp mugshot-server.service install.sh deb/mugshot-ctl /tmp/pkg/mugshot/
+          tar -czf "mugshot-server_linux_${ARCH}_${VER}.tar.gz" -C /tmp/pkg mugshot
+          cp "mugshot-server_linux_${ARCH}_${VER}.tar.gz" ../
           # 裸二进制不带版本后缀：服务端自更新备用源按此固定名拼 URL，且各 Release 下不冲突
-          cp mugshot-server "../mugshot-server_linux_arm64"
-          cp mugshot-gui "../mugshot-gui_linux_arm64"
+          cp mugshot-server "../mugshot-server_linux_${ARCH}"
+          cp mugshot-gui "../mugshot-gui_linux_${ARCH}"
           # deb 的 Version 字段要求以数字开头，build-deb.sh 会对字母开头的哈希补 0 前缀，用通配符匹配
-          cp mugshot-server_*_arm64.deb ../
-          ls -la ../*.tar.gz ../*.deb ../*arm64*
+          cp mugshot-server_*_"${ARCH}".deb ../
+          ls -la ../*.tar.gz ../*.deb ../*"${ARCH}"*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mugshot-server-linux-arm64
+          name: mugshot-server-linux-${{ matrix.arch }}
           path: |
-            mugshot-server_linux_arm64_*.tar.gz
-            mugshot-server_linux_arm64
-            mugshot-gui_linux_arm64
-            mugshot-server_*_arm64.deb
+            mugshot-server_linux_${{ matrix.arch }}_*.tar.gz
+            mugshot-server_linux_${{ matrix.arch }}
+            mugshot-gui_linux_${{ matrix.arch }}
+            mugshot-server_*_${{ matrix.arch }}.deb
 
   plugin:
     runs-on: ubuntu-latest
@@ -159,14 +169,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # 固定文件名，覆盖式上传，避免 dev 预发布堆积历史构建
-          cp dist/mugshot-server_linux_arm64_*.tar.gz dist/mugshot-server-dev-linux-arm64.tar.gz
-          cp dist/mugshot-server_linux_arm64 dist/mugshot-server-dev-linux-arm64
-          cp dist/mugshot-gui_linux_arm64 dist/mugshot-gui-dev-linux-arm64
+          for arch in arm64 amd64; do
+            cp dist/mugshot-server_linux_${arch}_*.tar.gz dist/mugshot-server-dev-linux-${arch}.tar.gz
+            cp dist/mugshot-server_linux_${arch} dist/mugshot-server-dev-linux-${arch}
+            cp dist/mugshot-gui_linux_${arch} dist/mugshot-gui-dev-linux-${arch}
+          done
           cp dist/mugshot-plugin_*.tar.gz dist/mugshot-plugin-dev.tar.gz
           gh release view dev --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create dev --repo "$GITHUB_REPOSITORY" --prerelease \
               --title "Mugshot 开发构建" \
-              --notes "每次推送 master 自动编译：APK 与服务端 Linux ARM64 产物，均为最新提交构建。"
+              --notes "每次推送 master 自动编译：APK 与服务端 Linux ARM64/x86_64 产物，均为最新提交构建。"
           gh release upload dev dist/*-dev* --clobber --repo "$GITHUB_REPOSITORY"
 
   release:

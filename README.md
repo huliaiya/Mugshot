@@ -7,7 +7,7 @@
 | 组件 | 目录 | 说明 |
 | --- | --- | --- |
 | Mugshot（Android 上报端） | `android/` | Kotlin 应用，采集前台应用、分屏/小窗可见应用、后台应用、屏幕状态、电量与电池温度、充电、网络类型与最近 24 小时应用使用时长，通过 WebSocket 定时上报，并响应服务端按需上报指令；内置"运行日志"页，默认只看本次运行，可切换最近 24 小时历史 |
-| mugshot-server（Linux 服务端） | `server/` | Go 编写，运行在 Ubuntu 26.04 ARM64（也兼容 x86_64），接收多设备上报、维护设备在线状态表、提供 HTTP 查询 API 与 WebSocket 长连接、支持向设备下发 `request_report` 按需上报指令 |
+| mugshot-server（Linux 服务端） | `server/` | Go 编写，Ubuntu ARM64 与 x86_64 均有预编译包，接收多设备上报、维护设备在线状态表、提供 HTTP 查询 API 与 WebSocket 长连接、支持向设备下发 `request_report` 按需上报指令 |
 | Mugshot（TRSS-Yunzai 插件） | `plugins/mugshot/` | ESM 插件，连接服务端，接收 QQ 群指令，渲染状态卡片图片并通过 QQBot 按钮交互 |
 
 ## 架构
@@ -49,7 +49,7 @@
 
 ## 快速开始
 
-1. 部署 `mugshot-server`（Ubuntu ARM64，systemd 常驻）：下载 Release 的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；应用菜单点"Mugshot 服务端"打开图形管理面板（概览/运行日志/接入信息/设置四页，Token 自动显示可复制，设置页可改监听地址、Token、限流、保留天数等，改完即时生效无需重启，改端口后接入信息页地址自动同步），无桌面环境可在终端运行 `mugshot-ctl`，详见 `docs/DEPLOY.md`
+1. 部署 `mugshot-server`（Ubuntu ARM64 / x86_64，systemd 常驻）：`uname -m` 确认架构后，下载 Release 对应架构的 `.deb` 直接 `sudo apt install ./xxx.deb`，装完即自动运行；有桌面时应用菜单点"Mugshot 服务端"打开图形管理面板，纯 SSH/无桌面用 `sudo mugshot-ctl status|devices|show|token|config|set|logs|restart` 完成查看与设置，详见 `docs/DEPLOY.md`
 2. 安装 `plugins/mugshot` 到 TRSS-Yunzai 的 `plugins/` 目录：`git clone -b main https://github.com/huliaiya/Mugshot.git mugshot`，配置 `config/mugshot.yaml`（服务端地址与 Token，与 App 共用同一个）
 3. 安装 Mugshot APK（Release 下载，已签名，包名 `com.Mugshot.huli`，可直接安装），同意隐私政策，授予使用情况访问权限，填写服务端地址与 Token，开启上报
 
@@ -60,7 +60,7 @@
 | 产物 | 方式 |
 | --- | --- |
 | Android APK | GitHub Actions `build-android.yml`，或本地 `cd android && ./gradlew assembleRelease` |
-| mugshot-server linux-arm64 | GitHub Actions `build-linux-arm64.yml`（`ubuntu-24.04-arm` 原生构建），产出 `.deb`（`apt install` 即装）、`.tar.gz` 与裸二进制；本地 `cd server && CGO_ENABLED=0 go build` |
+| mugshot-server Linux | GitHub Actions `build-linux`（ARM64 与 x86_64 矩阵构建），每种架构产出 `.deb`（`apt install` 即装）、`.tar.gz`、裸二进制与 GUI；本地 `cd server && CGO_ENABLED=0 go build` |
 | 插件 | 纯源码，无构建步骤；Release 附带 `mugshot-plugin_<版本>.tar.gz`，插件内容同时自动同步到 `main` 分支（可直接 `git clone -b main` 安装） |
 
 三端均内置更新检查（启动时与每日一次，GitHub Releases，主源失败自动尝试备用源）与手动更新入口。

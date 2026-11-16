@@ -9,8 +9,10 @@ set -euo pipefail
 INSTALL_DIR="${MUGSHOT_INSTALL_DIR:-/opt/mugshot}"
 SERVICE_NAME="mugshot-server"
 SERVICE_USER="mugshot"
-BIN_SRC="$(cd "$(dirname "$0")" && pwd)/mugshot-server"
-UNIT_SRC="$(cd "$(dirname "$0")" && pwd)/mugshot-server.service"
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
+BIN_SRC="$SRC_DIR/mugshot-server"
+UNIT_SRC="$SRC_DIR/mugshot-server.service"
+CTL_SRC="$SRC_DIR/mugshot-ctl"
 
 if [[ "$(id -u)" != "0" ]]; then
   echo "请使用 sudo 运行本脚本" >&2
@@ -22,6 +24,14 @@ if [[ ! -x "$BIN_SRC" ]]; then
   exit 1
 fi
 
+arch="$(uname -m)"
+case "$arch" in
+  x86_64|amd64) arch="amd64" ;;
+  aarch64|arm64) arch="arm64" ;;
+  *) echo "提示: 当前架构 $arch 没有预编译包，请自行从源码构建" >&2 ;;
+esac
+echo "==> 检测到架构: $arch"
+
 echo "==> 创建系统用户 $SERVICE_USER（如已存在则跳过）"
 id "$SERVICE_USER" &>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 
@@ -29,6 +39,16 @@ echo "==> 安装到 $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/data"
 install -m 0755 "$BIN_SRC" "$INSTALL_DIR/mugshot-server"
 install -m 0644 "$UNIT_SRC" "/etc/systemd/system/$SERVICE_NAME.service"
+
+# 命令行管理工具：终端里 status/devices/show/token/config/set/logs 等
+if [[ -f "$CTL_SRC" ]]; then
+  install -m 0755 "$CTL_SRC" "$INSTALL_DIR/mugshot-ctl"
+  cat > /usr/local/bin/mugshot-ctl <<EOF
+#!/bin/sh
+MUGSHOT_CONFIG="$INSTALL_DIR/config.json" exec "$INSTALL_DIR/mugshot-ctl" "\$@"
+EOF
+  chmod 0755 /usr/local/bin/mugshot-ctl
+fi
 
 echo "==> 生成配置文件 $INSTALL_DIR/config.json（如不存在；token 会自动生成并写入该文件）"
 if [[ ! -f "$INSTALL_DIR/config.json" ]]; then
@@ -61,6 +81,10 @@ echo
 echo "安装完成。常用排查命令："
 echo "  systemctl status $SERVICE_NAME"
 echo "  journalctl -u $SERVICE_NAME -f"
-echo "  查看自动生成的 token:  sudo cat $INSTALL_DIR/config.json"
+echo "  查看自动生成的 token:  sudo mugshot-ctl token"
+echo "  设备列表:              sudo mugshot-ctl devices"
+echo "  查看单台设备:          sudo mugshot-ctl show <设备名>"
+echo "  修改配置:              sudo mugshot-ctl set listen=:8080 token=auto && sudo mugshot-ctl restart
+  查看自动生成的 token:  sudo cat $INSTALL_DIR/config.json"
 echo "  检查更新:              sudo -u $SERVICE_USER $INSTALL_DIR/mugshot-server --check-update"
 echo "  手动更新:              curl -X POST -H 'Authorization: Bearer <token>' http://127.0.0.1:8080/admin/update"

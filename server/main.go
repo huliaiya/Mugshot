@@ -34,9 +34,22 @@ func main() {
 	checkUpdate := flag.Bool("check-update", false, "check GitHub Releases for a newer version and exit")
 	doUpdate := flag.Bool("update", false, "download and apply the latest release, then exit (systemd Restart=always will bring the new binary up)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	printConfig := flag.Bool("print-config", false, "print the JSON config file and exit")
+	var sets multiFlag
+	flag.Var(&sets, "set", "update a config key (key=value, repeatable), then exit; token=auto generates a random token")
 	flag.Parse()
 
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+
+	// 配置管理子命令面向 SSH/无桌面环境，输出保持干净，不混入启动日志
+	if *printConfig || len(sets) > 0 {
+		if err := runConfigCLI(*configPath, *printConfig, sets); err != nil {
+			fmt.Fprintln(os.Stderr, "配置操作失败:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	log.Printf("[mugshot-server] version=%s release=%s commit=%s go=%s", version, releaseTag, commit, goVersion())
 
 	if *showVersion {
