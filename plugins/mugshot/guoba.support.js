@@ -11,7 +11,7 @@
 // 配置仍然落在 config/mugshot.yaml（由 makeConfig 管理），
 // 与手改 YAML、指令内修改共用同一份数据，保存后无需重启 Yunzai。
 import { config, configSave } from "./model/config.js"
-import server from "./model/server.js"
+import server, { normalizeScheme } from "./model/server.js"
 import { commandAlias, normalizeAlias } from "./model/alias.js"
 
 /* global logger */
@@ -204,11 +204,11 @@ const schemas = [
  */
 async function testConnection(args, { Result }) {
   const [rawUrl = "", rawToken = "", rawPluginToken = ""] = Array.isArray(args) ? args : []
-  const base = normalizeUrl(rawUrl || config.server_url)
+  // 与插件运行期一致：允许不写 scheme，内网地址自动补 http
+  const base = normalizeScheme(normalizeUrl(rawUrl || config.server_url))
   if (!base) return Result.error("请先填写服务端地址")
-  let url
   try {
-    url = new URL(base)
+    new URL(base)
   } catch {
     return Result.error(`服务端地址格式不正确：${base}`)
   }
@@ -216,7 +216,7 @@ async function testConnection(args, { Result }) {
   const headers = { "content-type": "application/json" }
   if (token) headers.Authorization = `Bearer ${token}`
   try {
-    const res = await fetch(url.origin + "/health", {
+    const res = await fetch(base.replace(/\/+$/, "") + "/health", {
       headers,
       signal: AbortSignal.timeout(8000),
     })

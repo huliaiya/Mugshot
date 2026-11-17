@@ -388,12 +388,12 @@ func (h *Hub) handlePluginWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ws] 插件连接断开（剩余 %d 个）", n)
 	})
 
-	// send a hello with the current device list（带实时 online，否则插件首次订阅会把在线设备误存为离线）
-	if views := h.store.ListDevices(); len(views) > 0 {
-		h.FillOnline(views)
-		data := mustJSON(map[string]any{"type": "hello", "data": map[string]any{"devices": views}, "ts": nowMs()})
-		conn.trySend(data)
-	}
+	// send a hello with the current device list（带实时 online，否则插件首次订阅会把在线设备误存为离线）。
+	// 即使列表为空也要发：插件用 hello 覆盖本地缓存，否则设备全部移除后旧条目会一直留在列表里。
+	views := h.store.ListDevices()
+	h.FillOnline(views)
+	data := mustJSON(map[string]any{"type": "hello", "data": map[string]any{"devices": views}, "ts": nowMs()})
+	conn.trySend(data)
 
 	_ = ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error { return ws.SetReadDeadline(time.Now().Add(pongWait)) })

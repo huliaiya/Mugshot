@@ -12,6 +12,12 @@ import { config, configSave } from "./config.js"
 
 const DEVICE_EVENTS = new Set(["hello", "device_update", "device_online", "device_offline"])
 
+// WebSocket 握手超时：服务端不可达时部分网络会长时间停在 connecting，
+// 没有超时就会一直显示"连接中"且不再重试。
+const CONNECT_TIMEOUT_MS = 15000
+// 广播缓存最长信任时长：WS 看似在线但实际已半开时，超过这个时间就回退 HTTP 拉一次
+const CACHE_MAX_AGE_MS = 10 * 60 * 1000
+
 // isLocalHost 判断地址是否指向本机：回环地址、localhost 或本机网卡的 IP。
 // 只有指向本机时才允许走免授权的 Token 同步，避免误读另一台机器的服务端。
 function isLocalHost(host) {
@@ -44,16 +50,28 @@ function localBaseCandidates(base) {
   return out
 }
 
+// 局域网地址段：本机/内网服务绝大多数是明文 HTTP，公网域名默认 HTTPS。
+const PRIVATE_HOST_RE = /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/
+
+// isLocalLike 判断主机名是否属于本机/内网：这类地址按 http 处理更符合实际部署
+function isLocalLikeHost(host) {
+  const h = String(host || "").trim().toLowerCase().replace(/^\[|\]$/g, "")
+  if (!h) return false
+  return h === "localhost" || h === "::1" || h === "0.0.0.0" || h.endsWith(".local") || PRIVATE_HOST_RE.test(h)
+}
+
 // normalizeScheme 保证 base 地址带 http(s):// scheme。
-// 用户常填 `1.2.3.4:8080`、`mugshot.example.com` 这种无 scheme 的地址，
-// 直接拼给 fetch / WebSocket 客户端会因不合法而连不上；缺省按 https 处理。
+// 用户常填 `192.168.1.10:8080`、`mugshot.example.com` 这种无 scheme 的地址，
+// 直接拼给 fetch / WebSocket 客户端会因不合法而连不上。
+// 缺省规则：localhost/内网 IP 用 http（自建服务通常不开 TLS），公网域名用 https。
 // 已带 http/https/ws/wss 的输入原样保留（不重复加前缀）。
-function normalizeScheme(base) {
+export function normalizeScheme(base) {
   const trimmed = String(base || "").trim().replace(/\/+$/, "")
   if (!trimmed) return ""
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
-  if (/^wss?:\/\//i.test(trimmed)) return trimmed
-  return `https://${trimmed}`
+  if (/^(https?|wss?):\/\//i.test(trimmed)) return trimmed
+  const hostPart = trimmed.replace(/^[^@]*@/, "").replace(/^\/+/, "").split(/[/?#]/)[0]
+  const hostOnly = hostPart.replace(/:\d+$/, "").replace(/^\[|\]$/g, "")
+  return `${isLocalLikeHost(hostOnly) ? "http" : "https"}://${trimmed}`
 }
 
 // toWsUrl 把 base 地址派生成 ws(s):// URL。
@@ -77,6 +95,10 @@ class ServerClient {
     this.reconnectTimer = null
     this.reconnectPending = false
     this.closed = false
+    this.connectTimer = null // 握手超时定时器
+    this.wsGen = 0 // 连接代号：旧连接的异步回调靠它失效
+    this.authWarned = false // 401 只提示一次，避免重连刷屏
+    this.connectFails = 0 // 连续握手失败次数
   }
 
   // ---- 基础 ----
@@ -105,13 +127,16 @@ class ServerClient {
   async request(path, { method = "GET", timeoutMs = 15000, body } = {}) {
     let res = await this.#fetch(path, { method, timeoutMs, body })
     if (res.status === 401) {
-      // 服务端轮换过 Token：先从本机服务端同步新值再重试一次
+      // 服务端轮换过 Token：先从本机服务端同步新值，只有真的变了才重试
+      const before = this.token
       const tok = await this.#syncTokenFromLocal()
-      if (tok) res = await this.#fetch(path, { method, timeoutMs, body })
+      if (tok && tok !== before) res = await this.#fetch(path, { method, timeoutMs, body })
     }
     const data = await res.json().catch(() => null)
     if (!res.ok) {
-      const msg = data?.error || `HTTP ${res.status}`
+      const msg = res.status === 401
+        ? "Token 校验失败：插件与服务端（以及 App）必须使用同一个统一 Token，请到面板检查"
+        : data?.error || `HTTP ${res.status}`
       const err = new Error(msg)
       err.status = res.status
       err.data = data
@@ -170,12 +195,13 @@ class ServerClient {
     return this.request("/health")
   }
 
-  async getDevices() {
-    // 优先取广播缓存的快照：仅当 WS 在线或快照足够新（30 秒内）才信任，
-    // 避免长时间断线后列表里停留着过期的在线状态
-    const fresh = Date.now() - this.cacheTs < 30_000
-    if (this.wsState === "open" || fresh) {
-      if (this.devicesCache.length) {
+  async getDevices({ force = false } = {}) {
+    // 优先取广播缓存的快照：WS 在线且缓存未过期时才信任；
+    // 断线或缓存太旧（WS 半开时不会收到关闭事件）都回退 HTTP，避免列表一直停在旧状态
+    if (!force) {
+      const age = Date.now() - this.cacheTs
+      const usable = (this.wsState === "open" && age < CACHE_MAX_AGE_MS) || age < 30_000
+      if (usable && this.devicesCache.length) {
         return { devices: this.devicesCache, count: this.devicesCache.length, cached: true }
       }
     }
@@ -214,37 +240,138 @@ class ServerClient {
       }
     }
     this.wsState = "connecting"
+    const gen = ++this.wsGen
+    // settled 保证同一条连接只触发一次收尾，避免 error/close 双触发重复排重连
+    let settled = false
     try {
       const ws = new WebSocketImpl(this.wsUrl)
       // 兼容两种 WebSocket 实现：ws 包（EventEmitter 风格）与 Node>=22 全局 WebSocket
       if (typeof ws.on === "function") {
-        ws.on("open", () => this.#onOpen())
-        ws.on("message", raw => this.#onWsMessage(raw))
-        ws.on("close", () => this.#scheduleReconnect())
-        ws.on("error", err => logger.debug(`[Mugshot] WebSocket 错误: ${err.message}`))
+        ws.on("open", () => gen === this.wsGen && this.#onOpen())
+        ws.on("message", raw => gen === this.wsGen && this.#onWsMessage(raw))
+        ws.on("close", (code, reason) => {
+          if (gen !== this.wsGen || settled) return
+          settled = true
+          const text = reason ? String(reason) : ""
+          if (code === 1008 || code === 4001) logger.warn(`[Mugshot] 服务端拒绝订阅（${code}${text ? " " + text : ""}），请检查 Token`)
+          else if (this.wsState !== "open") this.#noteConnectFailure()
+          this.#scheduleReconnect()
+        })
+        ws.on("unexpected-response", (req, res) => {
+          if (gen !== this.wsGen) return
+          if (res?.statusCode === 401) this.#warnAuth()
+          else logger.warn(`[Mugshot] WebSocket 握手被拒绝：HTTP ${res?.statusCode ?? "?"}`)
+          // 握手被拒绝不会自动关闭，这里主动收尾，避免白等握手超时
+          try { req?.destroy?.() } catch {}
+          try { ws.terminate?.() } catch {}
+        })
+        ws.on("error", err => {
+          logger.debug(`[Mugshot] WebSocket 错误: ${err.message}`)
+          // 握手失败时部分实现只发 error 不发 close，这里主动收尾触发重连
+          if (gen === this.wsGen && this.wsState !== "open" && !settled) {
+            settled = true
+            this.#noteConnectFailure()
+            try { ws.terminate?.() } catch {}
+            this.#scheduleReconnect()
+          }
+        })
       } else {
-        ws.onopen = () => this.#onOpen()
-        ws.onmessage = ev => this.#onWsMessage(ev.data)
-        ws.onclose = () => this.#scheduleReconnect()
-        ws.onerror = err => logger.debug(`[Mugshot] WebSocket 错误: ${err?.message || "unknown"}`)
+        ws.onopen = () => gen === this.wsGen && this.#onOpen()
+        ws.onmessage = ev => gen === this.wsGen && this.#onWsMessage(ev.data)
+        ws.onclose = ev => {
+          if (gen !== this.wsGen || settled) return
+          settled = true
+          if (ev?.code === 1008 || ev?.code === 4001) logger.warn(`[Mugshot] 服务端拒绝订阅（${ev.code}），请检查 Token`)
+          else if (this.wsState !== "open") this.#noteConnectFailure()
+          this.#scheduleReconnect()
+        }
+        ws.onerror = () => {
+          logger.debug("[Mugshot] WebSocket 错误")
+          // 全局 WebSocket 在非 101 握手时只触发 error（无状态码），主动收尾触发重连。
+          // 不能在 error 里再调 close()：undici 会同步再抛一次 error，形成递归爆栈。
+          if (gen === this.wsGen && this.wsState !== "open" && !settled) {
+            settled = true
+            this.#noteConnectFailure()
+            this.#scheduleReconnect()
+          }
+        }
       }
       this.ws = ws
+      this.#armConnectTimeout(gen)
     } catch (err) {
       this.wsState = "off"
-      logger.warn(`[Mugshot] WebSocket 连接失败: ${err.message}，10 秒后重试`)
+      logger.warn(`[Mugshot] WebSocket 连接失败: ${err.message}，稍后重试`)
       this.#scheduleReconnect()
     }
   }
 
+  #armConnectTimeout(gen) {
+    this.#clearConnectTimeout()
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null
+      if (gen !== this.wsGen || this.wsState === "open") return
+      logger.warn(`[Mugshot] WebSocket 连接超时（${CONNECT_TIMEOUT_MS / 1000}s），稍后重试`)
+      this.#noteConnectFailure()
+      const ws = this.ws
+      this.ws = null
+      this.wsState = "off"
+      this.wsGen++
+      try { ws?.close?.() } catch {}
+      this.#scheduleReconnect()
+    }, CONNECT_TIMEOUT_MS)
+  }
+
+  #clearConnectTimeout() {
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer)
+      this.connectTimer = null
+    }
+  }
+
+  #warnAuth() {
+    if (this.authWarned) return
+    this.authWarned = true
+    logger.warn("[Mugshot] WebSocket 订阅被拒绝（401）：插件 Token 与服务端不一致，请到面板填写统一 Token")
+  }
+
+  // #noteConnectFailure 记录握手前失败次数。
+  // 全局 WebSocket 拿不到 HTTP 状态码，连续失败时也给出一次提示，
+  // 避免地址/Token 配错只在 debug 日志里无声循环。
+  #noteConnectFailure() {
+    this.connectFails = (this.connectFails || 0) + 1
+    if (this.connectFails === 3 && !this.authWarned) {
+      this.authWarned = true
+      logger.warn("[Mugshot] WebSocket 连续 3 次连不上：请检查面板中的服务端地址与 Token（HTTP 查询仍可用）")
+    }
+  }
+
   #onOpen() {
+    this.#clearConnectTimeout()
     this.wsState = "open"
     this.reconnectDelay = 1000
+    this.authWarned = false
+    this.connectFails = 0
     logger.mark("[Mugshot] 已连接 mugshot-server WebSocket 订阅")
+    // 服务端只在有设备时推 hello；主动拉一次列表，保证重连后列表与在线状态立即对齐
+    this.getDevices({ force: true }).catch(err => logger.debug(`[Mugshot] 重连后拉取设备列表失败: ${err?.message || err}`))
   }
 
   #onWsMessage(raw) {
+    // Node 全局 WebSocket 可能给 Blob；ws 包给 Buffer；字符串直接处理
+    if (raw && typeof raw === "object" && typeof raw.text === "function") {
+      raw.text().then(text => this.#handleWsText(text)).catch(() => {})
+      return
+    }
+    if (raw instanceof ArrayBuffer) {
+      this.#handleWsText(Buffer.from(raw).toString("utf8"))
+      return
+    }
+    this.#handleWsText(Buffer.isBuffer(raw) ? raw.toString("utf8") : String(raw))
+  }
+
+  #handleWsText(text) {
     try {
-      const msg = JSON.parse(String(raw))
+      const msg = JSON.parse(text)
       if (!DEVICE_EVENTS.has(msg.type)) return
       const data = msg.data || {}
       if (msg.type === "hello") {
@@ -284,6 +411,7 @@ class ServerClient {
   }
 
   #scheduleReconnect() {
+    this.#clearConnectTimeout()
     if (this.ws) {
       try { this.ws.removeAllListeners?.() } catch {}
       try { this.ws.onopen = null; this.ws.onmessage = null; this.ws.onclose = null; this.ws.onerror = null } catch {}
@@ -293,13 +421,14 @@ class ServerClient {
     this.wsState = "off"
     if (this.closed || this.reconnectTimer || this.reconnectPending) return
     this.reconnectPending = true
+    const gen = this.wsGen
     // 鉴权失败时服务端会直接拒绝握手，这里先同步一次 Token 再安排重连，
     // 避免旧 Token 让每次重连都失败
     this.#syncTokenFromLocal()
       .catch(() => "")
       .then(tok => {
         this.reconnectPending = false
-        if (this.closed || this.reconnectTimer) return
+        if (this.closed || this.reconnectTimer || gen !== this.wsGen) return
         if (tok) this.reconnectDelay = 1000
         const delay = Math.min(this.reconnectDelay, 5 * 60 * 1000)
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 5 * 60 * 1000)
@@ -315,8 +444,10 @@ class ServerClient {
    * 面板里改了服务端地址或 Token 后调用，避免旧连接一直挂着。
    */
   async restartWs() {
-    // 先置 closed，屏蔽旧连接 close 事件触发的自动重连
+    // 先置 closed 并递增代号，屏蔽旧连接与旧异步回调触发的自动重连
     this.closed = true
+    this.wsGen++
+    this.#clearConnectTimeout()
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
@@ -337,6 +468,8 @@ class ServerClient {
 
   close() {
     this.closed = true
+    this.wsGen++
+    this.#clearConnectTimeout()
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     if (this.ws) {
       try { this.ws.close() } catch {}
