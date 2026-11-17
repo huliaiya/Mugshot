@@ -261,10 +261,10 @@ object HryFineProtocol {
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
     fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health()): Health = when (sub) {
-        0x0C -> base.copy(
-            steps = int32(p, 0),
-            distanceM = int32(p, 4),
-            kcal = int32(p, 8),
+        0x0C, 0x0A -> base.copy(
+            steps = int32(p, 0) ?: base.steps,
+            distanceM = int32(p, 4) ?: base.distanceM,
+            kcal = int32(p, 8) ?: base.kcal,
         )
         0x02 -> {
             var sum = 0

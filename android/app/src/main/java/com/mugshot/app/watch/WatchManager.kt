@@ -648,7 +648,11 @@ object WatchManager {
                 snap = snap.copy(protocol = text)
             }
             UUID.fromString(HryFineProtocol.CHAR_FEATURES) -> features = HryFineProtocol.parseFeatures(value)
-            UUID.fromString(HryFineProtocol.CHAR_FIRMWARE) -> lastFirmware = printable(value)
+            UUID.fromString(HryFineProtocol.CHAR_FIRMWARE) -> {
+                val text = printable(value)
+                // 部分手表 2A26 存的是纯数字编号，真正的固件版本在 0xF3 设备信息里
+                if (text.any { it.isLetter() || it == '.' || it == '-' }) lastFirmware = text
+            }
             UUID.fromString(HryFineProtocol.CHAR_MODEL) -> lastProject = printable(value)
             UUID.fromString(HryFineProtocol.BATTERY_CHAR_UUID) -> snap = snap.copy(battery = value.firstOrNull()?.toInt()?.and(0xFF) ?: -1)
         }
@@ -687,6 +691,7 @@ object WatchManager {
         snap = snap.copy(updatedAt = System.currentTimeMillis())
         publish()
         requestBattery()
+        main.postDelayed({ if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_DEVICE_INFO, 0x00) }, 1200)
         main.postDelayed({ if (snap.state == STATE_CONNECTED) syncHealth() }, 2000)
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) {
@@ -769,14 +774,22 @@ object WatchManager {
     }
 
     private fun syncHealth() {
+        if (snap.state != STATE_CONNECTED) return
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
+        // 逐个请求，握手间隔 500ms：当天总计、心率、血压、睡眠、血氧
+        val subs = listOf(0x0C, 0x04, 0x05, 0x09, 0x0E)
+        subs.forEachIndexed { i, sub ->
+            main.postDelayed({
+                if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
+            }, 500L * (i + 1))
+        }
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) {
                 snap = snap.copy(updatedAt = System.currentTimeMillis())
                 publish()
                 LogStore.log("watch", "手表数据同步完成：" + describe(snap))
             }
-        }, 2500)
+        }, 500L * (subs.size + 2))
     }
 
     @SuppressLint("MissingPermission")
@@ -846,8 +859,9 @@ object WatchManager {
     }
 
     private fun handleFrame(frame: HryFineProtocol.Frame) {
-        if (!frame.isAck && frame.group != HryFineProtocol.GROUP_SPORTS) {
-            LogStore.log("watch", "收到 %02X/%02X 长度 %d".format(frame.group, frame.sub, frame.payload.size))
+        if (!frame.isAck) {
+            val hex = frame.payload.take(24).joinToString("") { "%02X".format(it) }
+            LogStore.log("watch", "收到 %02X/%02X 长度 %d%s".format(frame.group, frame.sub, frame.payload.size, if (hex.isEmpty()) "" else " 数据 $hex"))
         }
         when (frame.group) {
             HryFineProtocol.GROUP_SETTINGS -> if (!frame.isAck && frame.sub == HryFineProtocol.SUB_SETTINGS_REPLY) {
@@ -923,7 +937,10 @@ object WatchManager {
             bpSys = health.bpSys ?: snap.bpSys,
             bpDia = health.bpDia ?: snap.bpDia,
             spo2 = health.spo2 ?: snap.spo2,
-            sleepMin = health.sleepLightMin?.let { light -> light + (health.sleepDeepMin ?: 0) } ?: snap.sleepMin,
+            sleepMin = health.sleepLightMin
+                ?.let { light -> light + (health.sleepDeepMin ?: 0) }
+                ?.takeIf { it in 1..1440 }
+                ?: snap.sleepMin,
         )
         publish()
     }
