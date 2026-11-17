@@ -88,8 +88,8 @@
       <div class="watch">
         <div class="uk">手表 {{ d.watch_name }}<span class="wtag {{ d.watch_connected ? "on" : "off" }}">{{ d.watch_state_text }}</span></div>
         <div class="wgrid">
-          <div class="wrow"><span class="wk">电量</span><span class="wv"><span class="battery"><span class="bar"><span class="fill {{ d.watch_battery_class }}" style="width: {{ d.watch_battery_width }}%;"></span></span> {{ d.watch_battery_text }}</span></span></div>
           <div class="wrow"><span class="wk">今日步数</span><span class="wv">{{ d.watch_steps_text }}</span></div>
+          <div class="wrow"><span class="wk">电量</span><span class="wv"><span class="battery"><span class="bar"><span class="fill {{ d.watch_battery_class }}" style="width: {{ d.watch_battery_width }}%;"></span></span> {{ d.watch_battery_text }}</span></span></div>
           <div class="wrow"><span class="wk">心率</span><span class="wv">{{ d.watch_heart_text }}</span></div>
           <div class="wrow"><span class="wk">血压</span><span class="wv">{{ d.watch_bp_text }}</span></div>
           <div class="wrow"><span class="wk">血氧</span><span class="wv">{{ d.watch_spo2_text }}</span></div>

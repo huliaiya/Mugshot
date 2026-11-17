@@ -43,7 +43,8 @@
   .watch-badge.off { background: rgba(140,150,175,.16); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
   .watch-batt { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dashed #24314e; }
   .watch-batt .wk { font-size: 14px; color: {{ backdrop.accents[3] }}; }
-  .watch-batt .wv { font-size: 17px; font-weight: 700; min-width: 54px; text-align: right; }
+  .watch-batt .wv { font-size: 24px; font-weight: 700; margin-left: auto; }
+  .battery-bar.small { height: 8px; margin-top: 7px; flex: none; }
   .watch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; }
   .wm .wk { font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 6px; }
   .wm .wv { font-size: 20px; font-weight: 700; }
@@ -112,12 +113,11 @@
       <div class="watch-badge {{ watch_connected ? "on" : "off" }}">{{ watch_state_text }}</div>
     </div>
     <div class="watch-batt">
-      <span class="wk">电量</span>
-      <div class="battery-bar"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div>
-      <span class="wv">{{ watch_battery_text }}</span>
+      <span class="wk">今日步数</span>
+      <span class="wv">{{ watch_steps_text }}</span>
     </div>
     <div class="watch-grid">
-      <div class="wm"><div class="wk">今日步数</div><div class="wv">{{ watch_steps_text }}</div></div>
+      <div class="wm"><div class="wk">电量</div><div class="wv">{{ watch_battery_text }}</div><div class="battery-bar small"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div></div>
       <div class="wm"><div class="wk">心率</div><div class="wv">{{ watch_heart_text }}</div></div>
       <div class="wm"><div class="wk">血压</div><div class="wv">{{ watch_bp_text }}</div></div>
       <div class="wm"><div class="wk">血氧</div><div class="wv">{{ watch_spo2_text }}</div></div>
