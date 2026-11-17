@@ -115,8 +115,6 @@ class HomeFragment : Fragment(), WsClient.Listener {
                 Toast.makeText(requireContext(), R.string.watch_need_enable, Toast.LENGTH_SHORT).show()
             }
         }
-        view.findViewById<Button>(R.id.btn_glucose_record).setOnClickListener { showGlucoseDialog() }
-        renderGlucose()
         WatchManager.addListener(watchListener)
         Shizuku.addRequestPermissionResultListener(shizukuPermListener)
 
@@ -443,84 +441,6 @@ class HomeFragment : Fragment(), WsClient.Listener {
                     WatchManager.renameWatch(name)
                     Toast.makeText(ctx, R.string.watch_renamed, Toast.LENGTH_SHORT).show()
                 }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
-    /** 血糖卡：手表不提供该数据，显示用户最近一次手动录入值 */
-    private fun renderGlucose() {
-        val v = view ?: return
-        val valueView = v.findViewById<TextView>(R.id.glucose_value)
-        val metaView = v.findViewById<TextView>(R.id.glucose_meta)
-        val tenths = Prefs.glucoseTenths
-        if (tenths < 10) {
-            valueView.text = getString(R.string.glucose_none)
-            metaView.text = ""
-            return
-        }
-        valueView.text = "%.1f mmol/L".format(tenths / 10.0)
-        val status = glucoseStatusLabel(Prefs.glucoseStatus)
-        val at = Prefs.glucoseAt
-        val time = if (at > 0) glucoseTimeFmt.format(Date(at)) else ""
-        metaView.text = listOf(status, time).filter { it.isNotBlank() }.joinToString(" · ")
-    }
-
-    private val glucoseTimeFmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-
-    private fun glucoseStatusLabel(status: Int): String = getString(
-        when (status) {
-            1 -> R.string.glucose_status_after1
-            2 -> R.string.glucose_status_after2
-            3 -> R.string.glucose_status_after3
-            else -> R.string.glucose_status_fasting
-        },
-    )
-
-    /** 手动录入血糖：数值 1.0 ~ 33.0（步长 0.1）+ 4 个测量场景，保存后立刻上报一次 */
-    private fun showGlucoseDialog() {
-        val ctx = requireContext()
-        val pad = (20 * resources.displayMetrics.density).toInt()
-        val input = android.widget.EditText(ctx).apply {
-            setText(if (Prefs.glucoseTenths >= 10) "%.1f".format(Prefs.glucoseTenths / 10.0) else "5.0")
-            setHint(R.string.glucose_hint)
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setSingleLine(true)
-            setSelection(text.length)
-        }
-        val spinner = android.widget.Spinner(ctx).apply {
-            adapter = android.widget.ArrayAdapter(
-                ctx,
-                android.R.layout.simple_spinner_dropdown_item,
-                (0..3).map { glucoseStatusLabel(it) },
-            )
-            setSelection(Prefs.glucoseStatus)
-        }
-        val box = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad / 2, pad, 0)
-            addView(input)
-            addView(spinner, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = pad / 2 })
-        }
-        androidx.appcompat.app.AlertDialog.Builder(ctx)
-            .setTitle(R.string.glucose_dialog_title)
-            .setView(box)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val value = input.text.toString().trim().toDoubleOrNull()
-                if (value == null || value < 1.0 || value > 33.0) {
-                    Toast.makeText(ctx, R.string.glucose_range_error, Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                Prefs.glucoseTenths = Math.round(value * 10).toInt()
-                Prefs.glucoseStatus = spinner.selectedItemPosition
-                Prefs.glucoseAt = System.currentTimeMillis()
-                renderGlucose()
-                ReportService.reportNow("血糖录入")
-                Toast.makeText(ctx, R.string.glucose_saved, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

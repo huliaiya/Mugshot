@@ -91,11 +91,6 @@ class ReportService : Service(), WsClient.Listener {
         fun reconnectNow() {
             activeService?.wsClient?.reconnectNow()
         }
-
-        /** 手表测量完成等场景：让服务立即上报一次 */
-        fun reportNow(reason: String) {
-            activeService?.wsClient?.reportNow(reason)
-        }
     }
 
     private var wsClient: WsClient? = null

@@ -24,9 +24,6 @@ object Prefs {
     const val KEY_WATCH_NAME = "watch_name"
     const val KEY_WATCH_NAME_MANUAL = "watch_name_manual"
     const val KEY_WATCH_USER_ID = "watch_user_id"
-    const val KEY_GLUCOSE_TENTHS = "glucose_tenths"
-    const val KEY_GLUCOSE_STATUS = "glucose_status"
-    const val KEY_GLUCOSE_AT = "glucose_at"
 
     /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
     const val THEME_FOLLOW_SYSTEM = 0
@@ -107,24 +104,6 @@ object Prefs {
     var lastReportTs: Long
         get() = sp(MugshotApp.instance).getLong(KEY_LAST_REPORT_TS, 0)
         set(v) = sp(MugshotApp.instance).edit().putLong(KEY_LAST_REPORT_TS, v).apply()
-
-    /**
-     * 最近一次血糖记录：值按 0.1 mmol/L 存整数（10..330），0 表示还没有记录。
-     * 血糖由用户手动录入（手表与协议都不提供该数据）。
-     */
-    var glucoseTenths: Int
-        get() = sp(MugshotApp.instance).getInt(KEY_GLUCOSE_TENTHS, 0)
-        set(v) = sp(MugshotApp.instance).edit().putInt(KEY_GLUCOSE_TENTHS, v.coerceIn(0, 330)).apply()
-
-    /** 测量场景：0 空腹 / 1 餐后 1 小时 / 2 餐后 2 小时 / 3 餐后 3 小时 */
-    var glucoseStatus: Int
-        get() = sp(MugshotApp.instance).getInt(KEY_GLUCOSE_STATUS, 0)
-        set(v) = sp(MugshotApp.instance).edit().putInt(KEY_GLUCOSE_STATUS, v.coerceIn(0, 3)).apply()
-
-    /** 录入时刻（毫秒时间戳），0 表示还没有记录 */
-    var glucoseAt: Long
-        get() = sp(MugshotApp.instance).getLong(KEY_GLUCOSE_AT, 0)
-        set(v) = sp(MugshotApp.instance).edit().putLong(KEY_GLUCOSE_AT, v).apply()
 
     /** 运行日志页是否自动滚动到底部（跟随最新日志） */
     var logAutoScroll: Boolean

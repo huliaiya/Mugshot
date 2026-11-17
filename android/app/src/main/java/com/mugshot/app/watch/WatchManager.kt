@@ -909,7 +909,7 @@ object WatchManager {
 
     private fun handleFrame(frame: HryFineProtocol.Frame) {
         if (!frame.isAck) {
-            // 测量/健康类帧把整段载荷都记下来：新指标（尿酸/血脂/血糖）字段布局要靠实测字节定位
+            // 测量/健康类帧把整段载荷都记下来：新指标（尿酸/血脂）字段布局要靠实测字节定位
             val full = frame.group == HryFineProtocol.GROUP_GENERAL || frame.group == HryFineProtocol.GROUP_SPORTS
             val hex = if (full) {
                 frame.payload.joinToString("") { "%02X".format(it) }

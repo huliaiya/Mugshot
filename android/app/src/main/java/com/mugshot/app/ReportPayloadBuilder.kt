@@ -49,19 +49,6 @@ object ReportPayloadBuilder {
         put("device_model", s.deviceModel)
         put("app_version", s.appVersion)
         watchJson(ctx)?.let { put("watch", it) }
-        glucoseJson()?.let { put("glucose", it) }
-    }
-
-    /** 血糖为用户手动录入（手表与协议均不提供），未录入时不写入 */
-    private fun glucoseJson(): JSONObject? {
-        val tenths = Prefs.glucoseTenths
-        if (tenths < 10) return null
-        return JSONObject().apply {
-            put("value", tenths / 10.0)
-            put("unit", "mmol/L")
-            put("status", Prefs.glucoseStatus)
-            if (Prefs.glucoseAt > 0) put("measured_at", Prefs.glucoseAt)
-        }
     }
 
     /** 手表数据：仅在用户开启手表连接时上报，字段为空时不写入，减小报文 */
