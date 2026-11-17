@@ -182,7 +182,13 @@ object WatchManager {
 
     fun setEnabled(enabled: Boolean) {
         Prefs.watchEnabled = enabled
-        if (enabled) startInternal(auto = false) else stopInternal()
+        if (enabled) {
+            startInternal(auto = false)
+            refreshAutoSync()
+        } else {
+            stopAutoSync()
+            stopInternal()
+        }
         publish()
     }
 
@@ -196,6 +202,89 @@ object WatchManager {
         } else {
             reconnectIdx = 0
             connectSavedOrScan()
+        }
+    }
+
+    // ---- 自动同步（由上报服务驱动）----
+    // 用主线程 Handler 定时：服务常驻期间按用户设置的间隔拉取健康数据，
+    // 并按开关依次测量心率/血压/血氧。进程被回收后由服务重启重新注册。
+    private val autoHandler = Handler(Looper.getMainLooper())
+    private var autoScheduled = false
+    private val autoTick = object : Runnable {
+        override fun run() {
+            autoScheduled = false
+            autoSyncOnce()
+            scheduleNextAuto(Prefs.watchAutoSyncMin * 60_000L)
+        }
+    }
+
+    /** 上一次记录的自动同步配置，用于避免重复日志 */
+    private var lastAutoKey = ""
+
+    /** 设置变更或服务启动时调用：重建自动同步定时任务 */
+    fun refreshAutoSync() {
+        autoHandler.removeCallbacks(autoTick)
+        autoScheduled = false
+        val on = Prefs.watchEnabled && Prefs.watchAutoSync
+        val key = if (!on) "off" else "on|${Prefs.watchAutoSyncMin}|${Prefs.watchAutoHeart}|${Prefs.watchAutoBp}|${Prefs.watchAutoSpo2}"
+        if (key != lastAutoKey) {
+            lastAutoKey = key
+            if (on) {
+                val items = buildList {
+                    if (Prefs.watchAutoHeart) add("心率")
+                    if (Prefs.watchAutoBp) add("血压")
+                    if (Prefs.watchAutoSpo2) add("血氧")
+                }.joinToString("、").ifEmpty { "不测量" }
+                LogStore.log("watch", "手表自动同步已开启：每 ${Prefs.watchAutoSyncMin} 分钟，自动测量 $items")
+            } else {
+                LogStore.log("watch", "手表自动同步未启用")
+            }
+        }
+        if (on) scheduleNextAuto(10_000L) // 开启后先尽快同步一次
+    }
+
+    fun stopAutoSync() {
+        autoHandler.removeCallbacks(autoTick)
+        autoScheduled = false
+    }
+
+    private fun scheduleNextAuto(delayMs: Long) {
+        if (!Prefs.watchEnabled || !Prefs.watchAutoSync || autoScheduled) return
+        autoScheduled = true
+        autoHandler.postDelayed(autoTick, delayMs.coerceAtLeast(5_000L))
+    }
+
+    private fun autoSyncOnce() {
+        if (!Prefs.watchEnabled || !Prefs.watchAutoSync) return
+        if (snap.state != STATE_CONNECTED) {
+            // 未连接时尝试回连；连接成功后本次同步由连接流程补做
+            if (Prefs.watchAddress.isNotBlank() && !userStopped && !reconnectScheduled) {
+                LogStore.log("watch", "自动同步：手表未连接，尝试回连")
+                reconnectIdx = 0
+                connectSavedOrScan()
+            }
+            return
+        }
+        LogStore.log("watch", "自动同步：拉取健康数据")
+        requestBattery()
+        syncHealth()
+        scheduleAutoMeasure()
+    }
+
+    private fun scheduleAutoMeasure() {
+        val subs = ArrayList<Int>(3)
+        if (Prefs.watchAutoHeart) subs.add(HryFineProtocol.SUB_MEASURE_HEART)
+        if (Prefs.watchAutoBp) subs.add(HryFineProtocol.SUB_MEASURE_BP)
+        if (Prefs.watchAutoSpo2) subs.add(HryFineProtocol.SUB_MEASURE_SPO2)
+        if (subs.isEmpty()) return
+        // 与 syncHealth 的多条请求错开：同步约 4 秒完成，之后每 30 秒测一项，
+        // 避免上一项测量未回包就被下一项覆盖 pendingMeasureLabel。
+        subs.forEachIndexed { i, sub ->
+            main.postDelayed({
+                if (Prefs.watchEnabled && Prefs.watchAutoSync && snap.state == STATE_CONNECTED) {
+                    measure(sub)
+                }
+            }, 8_000L + i * 30_000L)
         }
     }
 
@@ -227,6 +316,7 @@ object WatchManager {
     private fun stopInternal() {
         userStopped = true
         main.removeCallbacksAndMessages(null)
+        autoScheduled = false
         stopScan()
         disconnectGatt()
         health = HryFineProtocol.Health()

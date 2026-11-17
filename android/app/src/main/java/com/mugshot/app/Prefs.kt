@@ -24,6 +24,11 @@ object Prefs {
     const val KEY_WATCH_NAME = "watch_name"
     const val KEY_WATCH_NAME_MANUAL = "watch_name_manual"
     const val KEY_WATCH_USER_ID = "watch_user_id"
+    const val KEY_WATCH_AUTO_SYNC = "watch_auto_sync"
+    const val KEY_WATCH_AUTO_SYNC_MIN = "watch_auto_sync_min"
+    const val KEY_WATCH_AUTO_HR = "watch_auto_hr"
+    const val KEY_WATCH_AUTO_BP = "watch_auto_bp"
+    const val KEY_WATCH_AUTO_SPO2 = "watch_auto_spo2"
 
     /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
     const val THEME_FOLLOW_SYSTEM = 0
@@ -100,6 +105,31 @@ object Prefs {
             return id
         }
         set(v) = sp(MugshotApp.instance).edit().putString(KEY_WATCH_USER_ID, v.take(8)).apply()
+
+    /** 手表自动同步：开启后由上报服务按间隔定时拉取手表健康数据 */
+    var watchAutoSync: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_AUTO_SYNC, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_AUTO_SYNC, v).apply()
+
+    /** 自动同步间隔（分钟），5~720 */
+    var watchAutoSyncMin: Int
+        get() = sp(MugshotApp.instance).getInt(KEY_WATCH_AUTO_SYNC_MIN, 30)
+        set(v) = sp(MugshotApp.instance).edit().putInt(KEY_WATCH_AUTO_SYNC_MIN, v.coerceIn(5, 720)).apply()
+
+    /** 自动同步时是否顺带测量心率 */
+    var watchAutoHeart: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_AUTO_HR, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_AUTO_HR, v).apply()
+
+    /** 自动同步时是否顺带测量血压 */
+    var watchAutoBp: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_AUTO_BP, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_AUTO_BP, v).apply()
+
+    /** 自动同步时是否顺带测量血氧 */
+    var watchAutoSpo2: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_AUTO_SPO2, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_AUTO_SPO2, v).apply()
 
     var lastReportTs: Long
         get() = sp(MugshotApp.instance).getLong(KEY_LAST_REPORT_TS, 0)

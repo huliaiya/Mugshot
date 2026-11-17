@@ -465,13 +465,86 @@ func readAllLimit(r io.Reader, limit int64) ([]byte, error) {
 }
 
 func (a *API) handleDevices(w http.ResponseWriter, r *http.Request) {
-	views := a.store.ListDevices()
-	a.hub.FillOnline(views)
+	switch r.Method {
+	case http.MethodGet:
+		var views []*DeviceView
+		// include_hidden=1 供管理端查看并恢复被"移除"的设备；插件默认只看可见设备
+		if r.URL.Query().Get("include_hidden") == "1" {
+			views = a.store.ListAllDevices()
+		} else {
+			views = a.store.ListDevices()
+		}
+		a.hub.FillOnline(views)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":          true,
+			"devices":     views,
+			"count":       len(views),
+			"server_time": nowMs(),
+		})
+	case http.MethodPost:
+		a.handleDeviceAction(w, r)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "method not allowed"})
+	}
+}
+
+// deviceActionReq 是设备管理操作请求体。
+// action: hide（从列表移除，保留历史）/ unhide（恢复）/ delete（彻底删除）
+type deviceActionReq struct {
+	Device string `json:"device"` // 设备 ID 或设备名
+	Action string `json:"action"`
+}
+
+// handleDeviceAction 实现 POST /devices：插件与 GUI 通过它移除或彻底删除设备。
+func (a *API) handleDeviceAction(w http.ResponseWriter, r *http.Request) {
+	var req deviceActionReq
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "请求体不是合法 JSON"})
+		return
+	}
+	req.Device = strings.TrimSpace(req.Device)
+	if req.Device == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "缺少 device（设备 ID 或设备名）"})
+		return
+	}
+	view, _, err := a.store.GetDevice(req.Device)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	id := view.DeviceID
+	switch req.Action {
+	case "hide", "remove":
+		if !a.store.SetDeviceHidden(id, true) {
+			writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": "设备不存在或已在移除状态"})
+			return
+		}
+		a.hub.DropDevice(id)
+		log.Printf("[admin] 已从列表移除设备 %s(%s)，历史保留", view.DeviceName, maskID(id))
+	case "unhide", "restore":
+		if !a.store.SetDeviceHidden(id, false) {
+			writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "error": "设备不存在或未处于移除状态"})
+			return
+		}
+		log.Printf("[admin] 已恢复设备 %s(%s)", view.DeviceName, maskID(id))
+	case "delete":
+		if !a.store.DeleteDevice(id) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": "设备不存在"})
+			return
+		}
+		a.hub.DropDevice(id)
+		log.Printf("[admin] 已彻底删除设备 %s(%s) 及其历史数据", view.DeviceName, maskID(id))
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok": false, "error": "未知 action，可选 hide / unhide / delete",
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
-		"devices":     views,
-		"count":       len(views),
-		"server_time": nowMs(),
+		"action":      req.Action,
+		"device_id":   id,
+		"device_name": view.DeviceName,
 	})
 }
 

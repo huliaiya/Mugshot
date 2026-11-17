@@ -171,10 +171,20 @@ export function watchView(p) {
   const hr = num(w.heart_rate)
   const spo2 = num(w.spo2)
   const sleep = num(w.sleep_min)
+  const bp = String(w.blood_pressure || "").trim()
+  const heartText = hr ? `${hr} 次/分` : "-"
+  const sleepText = sleep ? formatMinutes(sleep) : "-"
+  const bpText = bp || "-"
+  const spo2Text = spo2 ? `${spo2}%` : "-"
+  // 摘要行：全部健康项都带中文标签，避免只看到"82% · 5820 步 · 72 bpm"这种缺少语义的拼接
   const line = [
-    hasBattery ? `${Math.round(battery)}%` : "",
-    steps !== null ? `${steps} 步` : "",
-    hr ? `${hr} bpm` : "",
+    hasBattery ? `电量 ${Math.round(battery)}%` : "",
+    steps !== null ? `步数 ${steps}` : "",
+    hr ? `心率 ${hr}` : "",
+    bp ? `血压 ${bp}` : "",
+    spo2 ? `血氧 ${spo2}%` : "",
+    sleep ? `睡眠 ${sleepText}` : "",
+    dist !== null ? `距离 ${dist >= 1000 ? `${(dist / 1000).toFixed(1)} 公里` : `${dist} 米`}` : "",
   ].filter(Boolean).join(" · ")
   return {
     watch_on: true,
@@ -187,10 +197,10 @@ export function watchView(p) {
     watch_steps_text: steps !== null ? `${steps} 步` : "-",
     watch_kcal_text: kcal !== null ? `${kcal} 千卡` : "-",
     watch_distance_text: dist !== null ? (dist >= 1000 ? `${(dist / 1000).toFixed(1)} 公里` : `${dist} 米`) : "-",
-    watch_heart_text: hr ? `${hr} bpm` : "-",
-    watch_sleep_text: sleep ? formatMinutes(sleep) : "-",
-    watch_bp_text: w.blood_pressure || "-",
-    watch_spo2_text: spo2 ? `${spo2}%` : "-",
+    watch_heart_text: heartText,
+    watch_sleep_text: sleepText,
+    watch_bp_text: bpText,
+    watch_spo2_text: spo2Text,
     watch_firmware_text: [w.firmware, w.project].filter(Boolean).join(" / ") || "-",
     watch_features_text: w.features || "-",
     watch_sync_text: w.updated_at ? formatShortTime(w.updated_at) : "-",

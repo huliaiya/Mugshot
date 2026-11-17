@@ -94,6 +94,16 @@
     <string name="label_temperature">温度</string>
     <string name="label_log_autoscroll">运行日志自动滚动</string>
     <string name="hint_log_autoscroll">开启后新日志出现时自动滚到最底部，关闭则保持当前阅读位置</string>
+    <string name="label_watch_auto_sync">手表自动同步</string>
+    <string name="hint_watch_auto_sync">开启后按设定间隔自动连接手表并拉取步数、心率、血压、血氧与睡眠</string>
+    <string name="label_watch_auto_sync_min">同步间隔</string>
+    <string name="watch_auto_sync_min_value">每 %1$d 分钟同步一次</string>
+    <string name="label_watch_auto_hr">自动测量心率</string>
+    <string name="hint_watch_auto_hr">每次自动同步时请手表测一次心率</string>
+    <string name="label_watch_auto_bp">自动测量血压</string>
+    <string name="hint_watch_auto_bp">每次自动同步时请手表测一次血压</string>
+    <string name="label_watch_auto_spo2">自动测量血氧</string>
+    <string name="hint_watch_auto_spo2">每次自动同步时请手表测一次血氧</string>
     <string name="label_network">网络</string>
     <string name="label_screen">屏幕</string>
     <string name="label_foreground">当前应用</string>
@@ -126,6 +136,7 @@
     <string name="label_watch_steps">今日步数</string>
     <string name="watch_steps_value">%1$d 步 · %2$d 千卡 · %3$d 米</string>
     <string name="label_watch_heart">心率</string>
+    <string name="watch_heart_value">%1$d 次/分</string>
     <string name="label_watch_sleep">睡眠</string>
     <string name="label_watch_spo2">血氧</string>
     <string name="label_watch_bp">血压</string>

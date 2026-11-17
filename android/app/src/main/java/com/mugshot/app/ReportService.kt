@@ -147,6 +147,7 @@ class ReportService : Service(), WsClient.Listener {
         isRunning = true
         currentState = WsClient.STATE_CONNECTING
         WatchManager.addMeasureListener(measuredListener)
+        WatchManager.refreshAutoSync()
         // START_STICKY：进程被杀后系统重建服务（intent 为 null），上面已处理
         return START_STICKY
     }
@@ -154,6 +155,7 @@ class ReportService : Service(), WsClient.Listener {
     override fun onDestroy() {
         LogStore.log("service", "上报服务停止（isRunning=${isRunning}）")
         WatchManager.removeMeasureListener(measuredListener)
+        WatchManager.stopAutoSync()
         wsClient?.stop()
         wsClient = null
         if (activeService === this) activeService = null

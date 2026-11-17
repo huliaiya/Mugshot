@@ -11,6 +11,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import com.mugshot.app.watch.WatchManager
 
 /**
  * 设置页：服务器地址、设备令牌、设备名称、上报周期。
@@ -61,6 +62,9 @@ class SettingsFragment : Fragment() {
         swAutoScroll.isChecked = Prefs.logAutoScroll
         swAutoScroll.setOnCheckedChangeListener { _, checked -> Prefs.logAutoScroll = checked }
 
+        // 手表自动同步：总开关 + 间隔 + 三项自动测量（保存即时生效）
+        setupWatchAutoSync(view)
+
         // 周期范围 30~1830 秒，步进 30
         sbInterval.max = 60
         sbInterval.progress = (Prefs.reportIntervalSec - 30) / 30
@@ -75,6 +79,50 @@ class SettingsFragment : Fragment() {
         })
 
         view.findViewById<Button>(R.id.btn_save).setOnClickListener { save(etUrl, etToken, etName, sbInterval) }
+    }
+
+    /** 手表自动同步设置：所有改动立即落盘并重建定时任务，无需点保存 */
+    private fun setupWatchAutoSync(root: View) {
+        val swSync = root.findViewById<android.widget.Switch>(R.id.sw_watch_auto_sync)
+        val body = root.findViewById<View>(R.id.ll_watch_auto_body)
+        val sbMin = root.findViewById<SeekBar>(R.id.sb_watch_auto_min)
+        val tvMin = root.findViewById<TextView>(R.id.tv_watch_auto_min)
+        val swHr = root.findViewById<android.widget.Switch>(R.id.sw_watch_auto_hr)
+        val swBp = root.findViewById<android.widget.Switch>(R.id.sw_watch_auto_bp)
+        val swSpo2 = root.findViewById<android.widget.Switch>(R.id.sw_watch_auto_spo2)
+
+        // 间隔范围 5~360 分钟，步进 5
+        val step = 5
+        val maxProgress = (360 - 5) / step
+        sbMin.max = maxProgress
+        sbMin.progress = ((Prefs.watchAutoSyncMin - 5) / step).coerceIn(0, maxProgress)
+        tvMin.text = getString(R.string.watch_auto_sync_min_value, Prefs.watchAutoSyncMin)
+
+        swSync.isChecked = Prefs.watchAutoSync
+        swHr.isChecked = Prefs.watchAutoHeart
+        swBp.isChecked = Prefs.watchAutoBp
+        swSpo2.isChecked = Prefs.watchAutoSpo2
+        body.visibility = if (Prefs.watchAutoSync) View.VISIBLE else View.GONE
+
+        swSync.setOnCheckedChangeListener { _, checked ->
+            Prefs.watchAutoSync = checked
+            body.visibility = if (checked) View.VISIBLE else View.GONE
+            WatchManager.refreshAutoSync()
+        }
+        sbMin.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                tvMin.text = getString(R.string.watch_auto_sync_min_value, 5 + progress * step)
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar) {}
+            override fun onStopTrackingTouch(bar: SeekBar) {
+                Prefs.watchAutoSyncMin = 5 + bar.progress * step
+                WatchManager.refreshAutoSync()
+            }
+        })
+        swHr.setOnCheckedChangeListener { _, checked -> Prefs.watchAutoHeart = checked }
+        swBp.setOnCheckedChangeListener { _, checked -> Prefs.watchAutoBp = checked }
+        swSpo2.setOnCheckedChangeListener { _, checked -> Prefs.watchAutoSpo2 = checked }
     }
 
     private fun save(

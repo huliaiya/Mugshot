@@ -158,6 +158,9 @@ type Device struct {
 	ReportCount   int64          `json:"report_count"`
 	FreshCount    int64          `json:"fresh_count"`
 	Recent        []HistoryEntry `json:"recent,omitempty"` // capped ring of recent reports
+	// Hidden 表示用户从列表里“移除”了该设备：记录与历史仍保留，
+	// 列表查询不再返回；设备下次注册或上报时自动清除，重新出现在列表里。
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // DeviceView is what the API returns: persistent record + live online flag.
@@ -255,6 +258,7 @@ func (s *Store) UpsertFromRegister(deviceID, deviceName, model string) *Device {
 	if model != "" {
 		d.Model = model
 	}
+	d.Hidden = false
 	d.LastHeartbeat = nowMs()
 	s.dirty = true
 	return cloneDevice(d)
@@ -288,6 +292,7 @@ func (s *Store) ApplyReport(deviceID, deviceName string, rep *Report) *Device {
 	}
 	d.LastReport = rep
 	d.ReportCount++
+	d.Hidden = false
 	if rep.RequestID != "" {
 		d.FreshCount++
 	}
@@ -391,10 +396,22 @@ func (s *Store) findByNameLocked(q string, foldCase bool) *Device {
 
 // ListDevices returns all devices sorted by name.
 func (s *Store) ListDevices() []*DeviceView {
+	return s.listDevices(false)
+}
+
+// ListAllDevices 返回含"已移除"设备在内的全部记录，供管理端恢复被移除的设备。
+func (s *Store) ListAllDevices() []*DeviceView {
+	return s.listDevices(true)
+}
+
+func (s *Store) listDevices(includeHidden bool) []*DeviceView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]*DeviceView, 0, len(s.devices))
 	for _, d := range s.devices {
+		if d.Hidden && !includeHidden {
+			continue
+		}
 		out = append(out, s.viewLocked(d))
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -425,6 +442,35 @@ func cloneDevice(d *Device) *Device {
 		c.Recent = append([]HistoryEntry(nil), d.Recent...)
 	}
 	return &c
+}
+
+// SetDeviceHidden 将设备从列表移除或恢复。移除只影响列表展示，
+// 记录和历史都在；设备下一次注册/上报会自动重新出现。
+func (s *Store) SetDeviceHidden(deviceID string, hidden bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.devices[deviceID]
+	if d == nil {
+		return false
+	}
+	if d.Hidden == hidden {
+		return false
+	}
+	d.Hidden = hidden
+	s.dirty = true
+	return true
+}
+
+// DeleteDevice 彻底删除设备记录及其历史数据（最近上报、名称历史等）。
+func (s *Store) DeleteDevice(deviceID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.devices[deviceID]; !ok {
+		return false
+	}
+	delete(s.devices, deviceID)
+	s.dirty = true
+	return true
 }
 
 // ---- persistence ----

@@ -397,7 +397,7 @@ class HomeFragment : Fragment(), WsClient.Listener {
             R.string.label_watch_steps,
             if (s.steps >= 0) getString(R.string.watch_steps_value, s.steps, s.kcal.coerceAtLeast(0), s.distanceM.coerceAtLeast(0)) else DASH,
         )
-        setWatchRow(R.id.row_watch_heart, R.string.label_watch_heart, if (s.heartRate > 0) "${s.heartRate} bpm" else DASH)
+        setWatchRow(R.id.row_watch_heart, R.string.label_watch_heart, if (s.heartRate > 0) getString(R.string.watch_heart_value, s.heartRate) else DASH)
         setWatchRow(R.id.row_watch_sleep, R.string.label_watch_sleep, sleepText(s.sleepMin))
         setWatchRow(R.id.row_watch_spo2, R.string.label_watch_spo2, if (s.spo2 > 0) "${s.spo2}%" else DASH)
         setWatchRow(

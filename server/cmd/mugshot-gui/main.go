@@ -53,6 +53,7 @@ type deviceRow struct {
 	Online       bool   `json:"online"`
 	LastReportAt int64  `json:"last_report_at"`
 	ReportCount  int64  `json:"report_count"`
+	Hidden       bool   `json:"hidden"`
 }
 
 type devicesResp struct {
@@ -1081,7 +1082,8 @@ func (u *ui) refreshHealth() {
 
 func (u *ui) refreshDevices() {
 	cli := u.client()
-	data, err := cli.get("/devices", true)
+	// 管理端需要看到被"移除"的设备才能恢复，因此带上 include_hidden=1
+	data, err := cli.get("/devices?include_hidden=1", true)
 	if err != nil {
 		return
 	}
@@ -1102,23 +1104,77 @@ func (u *ui) refreshDevices() {
 		return
 	}
 	fyne.Do(func() {
-		u.devSummary.SetText(fmt.Sprintf("共 %d 台设备", len(rows)))
+		visible := 0
+		for _, r := range rows {
+			if !r.Hidden {
+				visible++
+			}
+		}
+		u.devSummary.SetText(fmt.Sprintf("共 %d 台设备", visible))
 		u.devList.Objects = nil
 		for _, r := range rows {
-			name := r.DeviceName
-			if r.Model != "" {
-				name += "（" + r.Model + "）"
-			}
-			line := widget.NewRichText(
-				&widget.TextSegment{Text: "● ", Style: dotStyle(r.Online)},
-				&widget.TextSegment{Text: fmt.Sprintf("%s · 最近上报 %s · 累计 %d 次",
-					name, relTime(r.LastReportAt), r.ReportCount), Style: widget.RichTextStyle{Inline: true}},
-			)
-			line.Wrapping = fyne.TextWrapWord
-			u.devList.Add(line)
+			u.devList.Add(u.deviceRowWidget(r))
 		}
 		u.devList.Refresh()
 	})
+}
+
+// deviceRowWidget 渲染一行设备：状态点、名称、上报概况，以及移除/删除操作。
+func (u *ui) deviceRowWidget(r deviceRow) fyne.CanvasObject {
+	name := r.DeviceName
+	if r.Model != "" {
+		name += "（" + r.Model + "）"
+	}
+	info := fmt.Sprintf("%s · 最近上报 %s · 累计 %d 次", name, relTime(r.LastReportAt), r.ReportCount)
+	if r.Hidden {
+		info += " · 已从列表移除"
+	}
+	line := widget.NewRichText(
+		&widget.TextSegment{Text: "● ", Style: dotStyle(r.Online)},
+		&widget.TextSegment{Text: info, Style: widget.RichTextStyle{Inline: true}},
+	)
+	line.Wrapping = fyne.TextWrapWord
+
+	if r.Hidden {
+		restore := widget.NewButton("恢复", func() { u.deviceAction(r, "unhide") })
+		return container.NewBorder(nil, nil, nil, restore, line)
+	}
+	remove := widget.NewButton("移除", func() { u.confirmDeviceAction(r, "hide") })
+	del := widget.NewButton("删除", func() { u.confirmDeviceAction(r, "delete") })
+	return container.NewBorder(nil, nil, nil, container.NewHBox(remove, del), line)
+}
+
+// confirmDeviceAction 二次确认后执行设备管理操作。
+func (u *ui) confirmDeviceAction(r deviceRow, action string) {
+	var title, msg string
+	switch action {
+	case "hide":
+		title = "从列表移除"
+		msg = fmt.Sprintf("将把「%s」从设备列表移除，历史数据保留；\n该设备下次上报时会重新出现。\n确定继续？", r.DeviceName)
+	case "delete":
+		title = "彻底删除设备"
+		msg = fmt.Sprintf("将彻底删除「%s」及其全部历史数据，无法恢复。\n确定继续？", r.DeviceName)
+	}
+	dialog.NewConfirm(title, msg, func(ok bool) {
+		if ok {
+			go u.deviceAction(r, action)
+		}
+	}, u.win).Show()
+}
+
+// deviceAction 调用服务端 POST /devices 执行移除/恢复/删除。
+func (u *ui) deviceAction(r deviceRow, action string) {
+	cli := u.client()
+	body := map[string]string{"device": r.DeviceID, "action": action}
+	if _, err := cli.postJSON("/devices", body); err != nil {
+		fyne.Do(func() {
+			if u.ctlResult != nil {
+				u.ctlResult.SetText(fmt.Sprintf("设备操作失败：%v", err))
+			}
+		})
+		return
+	}
+	u.refreshDevices()
 }
 
 func deviceSig(rows []deviceRow) string {
@@ -1126,7 +1182,7 @@ func deviceSig(rows []deviceRow) string {
 	fmt.Fprintf(&b, "n=%d;", len(rows))
 	// 分钟粒度：设备每次上报（秒级）都会变的数据不触发整块重绘，低端软件渲染设备扛不住
 	for _, r := range rows {
-		fmt.Fprintf(&b, "%s|%s|%t|%d;", r.DeviceID, r.DeviceName, r.Online, r.LastReportAt/60000)
+		fmt.Fprintf(&b, "%s|%s|%t|%t|%d;", r.DeviceID, r.DeviceName, r.Online, r.Hidden, r.LastReportAt/60000)
 	}
 	return b.String()
 }

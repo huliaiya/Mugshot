@@ -10,7 +10,7 @@ import { config, configSave } from "./config.js"
 
 /* global logger, Bot */
 
-const DEVICE_EVENTS = new Set(["hello", "device_update", "device_online", "device_offline"])
+const DEVICE_EVENTS = new Set(["hello", "device_update", "device_online", "device_offline", "device_removed"])
 
 // WebSocket 握手超时：服务端不可达时部分网络会长时间停在 connecting，
 // 没有超时就会一直显示"连接中"且不再重试。
@@ -382,6 +382,9 @@ class ServerClient {
       } else if (msg.type === "device_update" && data.device) {
         this.#applyDeviceSnapshot(data.device)
         logger.debug(`[Mugshot] 收到设备上报更新 ${data.device.device_name || data.device.device_id}`)
+      } else if (msg.type === "device_removed") {
+        // 管理端移除/删除设备：直接丢弃缓存条目，避免列表里继续显示
+        if (data.device_id) this.devicesCache = this.devicesCache.filter(i => i.device_id !== data.device_id)
       } else if (msg.type === "device_offline") {
         if (data.device) {
           this.#applyDeviceSnapshot({ ...data.device, online: false })

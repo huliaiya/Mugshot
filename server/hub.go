@@ -556,6 +556,24 @@ func (h *Hub) viewForBroadcast(deviceID string) *DeviceView {
 	return v
 }
 
+// DropDevice 断开指定设备的在线连接、清理待处理请求，并通知插件把它从列表移除。
+// 供管理端“移除/删除设备”使用；隐藏设备后插件缓存需要同步删掉该条目。
+func (h *Hub) DropDevice(deviceID string) {
+	h.mu.Lock()
+	conn := h.deviceConns[deviceID]
+	delete(h.deviceConns, deviceID)
+	for id, p := range h.pending {
+		if p.deviceID == deviceID {
+			delete(h.pending, id)
+		}
+	}
+	h.mu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+	h.broadcast("device_removed", map[string]any{"device_id": deviceID}, nil)
+}
+
 func (h *Hub) IsDeviceOnline(deviceID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
