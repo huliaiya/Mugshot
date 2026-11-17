@@ -102,7 +102,7 @@ class ReportService : Service(), WsClient.Listener {
 
     /** 手表测量完成回调：服务存活时立刻补一次上报，界面是否在前台都不影响 */
     private val measuredListener: (String) -> Unit = { label ->
-        wsClient?.reportNow("手表$label测量完成")
+        wsClient?.reportNow("手表${label}测量完成")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

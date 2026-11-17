@@ -911,8 +911,11 @@ object WatchManager {
         if (!frame.isAck) {
             // 测量/健康类帧把整段载荷都记下来：新指标（尿酸/血脂/血糖）字段布局要靠实测字节定位
             val full = frame.group == HryFineProtocol.GROUP_GENERAL || frame.group == HryFineProtocol.GROUP_SPORTS
-            val data = if (full) frame.payload else frame.payload.take(24)
-            val hex = data.joinToString("") { "%02X".format(it) }
+            val hex = if (full) {
+                frame.payload.joinToString("") { "%02X".format(it) }
+            } else {
+                frame.payload.take(24).joinToString("") { "%02X".format(it) }
+            }
             LogStore.log("watch", "收到 %02X/%02X 长度 %d%s".format(frame.group, frame.sub, frame.payload.size, if (hex.isEmpty()) "" else " 数据 $hex"))
         }
         when (frame.group) {
