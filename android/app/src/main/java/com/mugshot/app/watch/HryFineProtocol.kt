@@ -44,7 +44,10 @@ object HryFineProtocol {
     const val SUB_SETTINGS_QUERY = 0x00
     const val SUB_SETTINGS_REPLY = 0x09
     const val SUB_HEALTH_SYNC = 0x01
+    const val SUB_HEALTH_HOURLY = 0x02
+    const val SUB_HEALTH_END = 0x08
     const val SUB_HEALTH_TODAY = 0x0A
+    const val SUB_HEALTH_TODAY_TOTAL = 0x0C
     const val SUB_BIND_ACCEPT = 0x08
     const val SUB_BIND_REJECT = 0x09
     const val SUB_MEASURE_HEART = 0x0D
@@ -347,6 +350,7 @@ object HryFineProtocol {
         var distance = 0
         var kcal = 0
         var bad = 0
+        var valid = 0
         for (h in 0 until 24) {
             val at = offset + h * 8
             val st = u16(p, at, little) ?: return null
@@ -355,10 +359,13 @@ object HryFineProtocol {
                 bad++
                 continue
             }
+            valid++
             steps += st
             distance += u16(p, at + 2, little) ?: return null
             kcal += u32(p, at + 4, little) ?: return null
         }
+        // 一个有效桶都没有：整包无数据（全 0xFFFF 或全脏值），交给上一级保留原值
+        if (valid == 0) return null
         // 有脏桶且一个有效桶都没有：多半是字节序猜反，交给另一种字节序重试
         if (bad > 0 && steps == 0 && distance == 0 && kcal == 0) return null
         if (steps > 100_000 || distance > 200_000 || kcal > 4_464_000) return null

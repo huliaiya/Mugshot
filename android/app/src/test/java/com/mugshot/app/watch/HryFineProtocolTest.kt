@@ -245,6 +245,28 @@ class HryFineProtocolTest {
     }
 
     @Test
+    fun freshDayTotalsReplaceStaleSteps() {
+        // 每轮同步都应覆盖上一轮的旧值：旧值 111 步不应挡住新的 5820 步
+        val p = ByteArray(12).apply {
+            this[0] = 0xBC.toByte(); this[1] = 0x16
+            this[4] = 0x14; this[5] = 0x0F
+            this[8] = 0xD7.toByte()
+        }
+        val base = HryFineProtocol.Health(steps = 111, distanceM = 222, kcal = 33)
+        val h = HryFineProtocol.decodeHealth(0x0C, p, base)
+        assertEquals(5820, h.steps)
+        assertEquals(3860, h.distanceM)
+        assertEquals(215, h.kcal)
+    }
+
+    @Test
+    fun emptyHourlyBucketsAreIgnored() {
+        // 全天无数据（全 0xFFFF）时应返回 null，交由上层保留上一轮的步数
+        val p = ByteArray(2 + 24 * 8) { 0xFF.toByte() }
+        assertNull(HryFineProtocol.decodeHealth(0x02, p).hourlySteps)
+    }
+
+    @Test
     fun dayTotalsRejectOutOfRangeValues() {
         // 全 0xFF：小端/大端都超上限，保持原值不变
         val p = ByteArray(12) { 0xFF.toByte() }

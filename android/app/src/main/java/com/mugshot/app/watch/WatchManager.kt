@@ -72,6 +72,7 @@ object WatchManager {
     private const val CONNECT_TIMEOUT_MS = 15000L
     private const val CANDIDATE_PUBLISH_MS = 400L
     private const val MEASURE_TIMEOUT_MS = 120_000L
+    private const val STEP_REFRESH_MS = 60_000L
     private val RECONNECT_DELAYS = longArrayOf(5_000, 10_000, 20_000, 40_000, 60_000)
 
     private val main = Handler(Looper.getMainLooper())
@@ -317,6 +318,7 @@ object WatchManager {
         userStopped = true
         main.removeCallbacksAndMessages(null)
         autoScheduled = false
+        stepTicking = false
         stopScan()
         disconnectGatt()
         health = HryFineProtocol.Health()
@@ -796,6 +798,7 @@ object WatchManager {
         requestBattery()
         main.postDelayed({ if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_DEVICE_INFO, 0x00) }, 1200)
         main.postDelayed({ if (snap.state == STATE_CONNECTED) syncHealth() }, 2000)
+        startStepTick()
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) {
                 writeFrame(HryFineProtocol.GROUP_SETTINGS, HryFineProtocol.SUB_SETTINGS_QUERY)
@@ -900,35 +903,37 @@ object WatchManager {
         main.post { measureListeners.forEach { it(label) } }
     }
 
-    private fun syncToday() {
-        writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_TODAY)
-        main.postDelayed({
-            if (snap.state == STATE_CONNECTED) {
-                snap = snap.copy(updatedAt = System.currentTimeMillis())
-                publish()
-            }
-        }, 1500)
-    }
-
     private fun syncHealth() {
         if (snap.state != STATE_CONNECTED) return
-        // 0x0A 会让手表把当天数据整包推送过来，0x01 是同步开始
-        writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_TODAY)
+        // 每轮同步前清空活动类字段（步数/距离/消耗），保留心率血压等最近测量值。
+        // 背景：整天总计（0x0C）并非每次都会回包，若不清空，上一轮的旧步数会一直
+        // 挡住这一轮按小时汇总（0x02）算出的新值，表现为步数停在首次连接时的数字。
+        health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
+        // 0x01 同步开始；0x0A 让手表把当天数据整包推过来
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
-        // 再逐个请求，握手间隔 500ms：当天总计、心率、血压、睡眠、血氧
-        val subs = listOf(0x0C, 0x04, 0x05, 0x09, 0x0E)
+        val subs = listOf(
+            HryFineProtocol.SUB_HEALTH_TODAY,
+            HryFineProtocol.SUB_HEALTH_TODAY_TOTAL,
+            HryFineProtocol.SUB_HEALTH_HOURLY,
+            0x04, // 心率
+            0x05, // 血压
+            0x09, // 睡眠
+            0x0E, // 血氧
+        )
         subs.forEachIndexed { i, sub ->
             main.postDelayed({
                 if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
             }, 500L * (i + 1))
         }
+        // 0x08 同步结束：不回这个包，手表会停在同步态，后续同步请求可能被忽略
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) {
+                writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
                 snap = snap.copy(updatedAt = System.currentTimeMillis())
                 publish()
                 LogStore.log("watch", "手表数据同步完成：" + describe(snap))
             }
-        }, 500L * (subs.size + 2))
+        }, 500L * (subs.size + 8))
     }
 
     @SuppressLint("MissingPermission")
@@ -1076,7 +1081,7 @@ object WatchManager {
     private fun applyHealth() {
         val prev = snap
         snap = snap.copy(
-            steps = health.steps ?: health.hourlySteps?.takeIf { it > 0 } ?: snap.steps,
+            steps = health.steps ?: health.hourlySteps ?: snap.steps,
             distanceM = health.distanceM ?: snap.distanceM,
             kcal = health.kcal ?: snap.kcal,
             heartRate = health.heartRate ?: snap.heartRate,
@@ -1093,6 +1098,44 @@ object WatchManager {
         if (snap.heartRate != prev.heartRate) notifyMeasuredIfPending("心率")
         if (snap.bpSys != prev.bpSys || snap.bpDia != prev.bpDia) notifyMeasuredIfPending("血压")
         if (snap.spo2 != prev.spo2) notifyMeasuredIfPending("血氧")
+    }
+
+    /** 连接期间每分钟刷新一次步数/距离/消耗，避免只有首次连接时同步过一次 */
+    private var stepTicking = false
+    private val stepTick = object : Runnable {
+        override fun run() {
+            if (snap.state != STATE_CONNECTED) {
+                stepTicking = false
+                return
+            }
+            // 测量进行中先让路，避免请求交错导致回包被当成测量结果
+            if (pendingMeasureLabel != null) {
+                main.postDelayed(this, 15_000L)
+                return
+            }
+            health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
+            // 与完整同步同样成帧：开始 -> 当天总计 -> 逐时汇总 -> 结束
+            writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
+            val steps = listOf(HryFineProtocol.SUB_HEALTH_TODAY_TOTAL, HryFineProtocol.SUB_HEALTH_HOURLY)
+            steps.forEachIndexed { i, sub ->
+                main.postDelayed({
+                    if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
+                }, 400L * (i + 1))
+            }
+            main.postDelayed({
+                if (snap.state == STATE_CONNECTED) {
+                    writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
+                }
+            }, 400L * (steps.size + 2))
+            main.postDelayed(this, STEP_REFRESH_MS)
+        }
+    }
+
+    /** 只允许存在一条定时链，重连后重复调用不会叠加 */
+    private fun startStepTick() {
+        if (stepTicking) return
+        stepTicking = true
+        main.postDelayed(stepTick, STEP_REFRESH_MS)
     }
 
     private fun scheduleReconnect() {
