@@ -379,6 +379,8 @@ class HomeFragment : Fragment(), WsClient.Listener {
         watchSwitch.isChecked = s.enabled
         watchSwitch.setOnCheckedChangeListener { _, checked -> setWatchEnabled(checked) }
         watchTitle.text = if (s.connected && s.name.isNotBlank()) s.name else getString(R.string.watch_title_off)
+        watchTitle.isClickable = s.enabled
+        watchTitle.setOnClickListener { if (s.enabled) showRenameWatch() }
         watchStatus.text = when {
             !s.enabled -> getString(R.string.watch_status_off)
             s.state == WatchManager.STATE_SCANNING -> s.detail.ifBlank { getString(R.string.watch_status_scanning) }
@@ -409,6 +411,39 @@ class HomeFragment : Fragment(), WsClient.Listener {
             R.string.label_watch_sync,
             if (s.updatedAt > 0) timeFmt.format(Date(s.updatedAt)) else getString(R.string.value_never),
         )
+    }
+
+    /** 手表改名：改完立即生效，上报与插件展示同步使用新名称 */
+    private fun showRenameWatch() {
+        val ctx = requireContext()
+        val input = android.widget.EditText(ctx).apply {
+            setText(Prefs.watchName.ifBlank { WatchManager.snapshot().name })
+            setSingleLine(true)
+            setSelection(text.length)
+            setHint(R.string.watch_rename_hint)
+        }
+        val wrap = android.widget.FrameLayout(ctx).apply {
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input, android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            ))
+        }
+        androidx.appcompat.app.AlertDialog.Builder(ctx)
+            .setTitle(R.string.watch_rename_title)
+            .setView(wrap)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(ctx, R.string.watch_rename_empty, Toast.LENGTH_SHORT).show()
+                } else {
+                    WatchManager.renameWatch(name)
+                    Toast.makeText(ctx, R.string.watch_renamed, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun confirmUnbind() {

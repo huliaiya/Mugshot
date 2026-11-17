@@ -137,6 +137,10 @@
     <string name="watch_unbind_title">解除手表绑定</string>
     <string name="watch_unbind_msg">将通知手表解绑、取消系统配对并清除已保存的手表，之后需要重新扫描选择。确定继续？</string>
     <string name="watch_unbind_done">已解除绑定</string>
+    <string name="watch_rename_title">修改手表名称</string>
+    <string name="watch_rename_hint">例如：我的手表</string>
+    <string name="watch_renamed">名称已更新</string>
+    <string name="watch_rename_empty">名称不能为空</string>
     <string name="watch_need_enable">请先开启手表开关</string>
     <string name="watch_perm_denied">蓝牙权限被拒绝，手表功能无法使用</string>
     <string name="watch_need_consent">请先同意隐私政策并完成服务器配置</string>

@@ -181,7 +181,7 @@ object WatchManager {
         val g = gatt
         if (g != null && snap.state == STATE_CONNECTED) {
             requestBattery()
-            syncToday()
+            syncHealth()
         } else {
             reconnectIdx = 0
             connectSavedOrScan()
@@ -683,7 +683,7 @@ object WatchManager {
         if (dev != null) {
             Prefs.watchAddress = dev.address
             val name = safeNameOf(dev)
-            if (name.isNotBlank()) Prefs.watchName = name
+            if (!Prefs.watchNameManual && name.isNotBlank()) Prefs.watchName = name
             snap = snap.copy(address = dev.address, name = Prefs.watchName)
         }
         main.removeCallbacks(connectTimeout)
@@ -717,6 +717,16 @@ object WatchManager {
 
     /** 当前是否已保存手表 */
     fun hasSavedDevice(): Boolean = Prefs.watchAddress.isNotBlank()
+
+    /** 自定义手表名称：卡片、上报与插件展示都用这个名称 */
+    fun renameWatch(name: String) {
+        val trimmed = name.trim().take(24)
+        if (trimmed.isEmpty()) return
+        Prefs.watchName = trimmed
+        Prefs.watchNameManual = true
+        LogStore.log("watch", "手表名称改为 $trimmed")
+        publish()
+    }
 
     /** 解除绑定：通知手表解绑、取消系统配对，并清除本地保存的手表 */
     @SuppressLint("MissingPermission")
@@ -775,8 +785,10 @@ object WatchManager {
 
     private fun syncHealth() {
         if (snap.state != STATE_CONNECTED) return
+        // 0x0A 会让手表把当天数据整包推送过来，0x01 是同步开始
+        writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_TODAY)
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
-        // 逐个请求，握手间隔 500ms：当天总计、心率、血压、睡眠、血氧
+        // 再逐个请求，握手间隔 500ms：当天总计、心率、血压、睡眠、血氧
         val subs = listOf(0x0C, 0x04, 0x05, 0x09, 0x0E)
         subs.forEachIndexed { i, sub ->
             main.postDelayed({
@@ -930,7 +942,7 @@ object WatchManager {
 
     private fun applyHealth() {
         snap = snap.copy(
-            steps = health.steps ?: snap.steps,
+            steps = health.steps ?: health.hourlySteps?.takeIf { it > 0 } ?: snap.steps,
             distanceM = health.distanceM ?: snap.distanceM,
             kcal = health.kcal ?: snap.kcal,
             heartRate = health.heartRate ?: snap.heartRate,

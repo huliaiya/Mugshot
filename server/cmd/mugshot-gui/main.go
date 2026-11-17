@@ -208,6 +208,7 @@ type ui struct {
 	tokenDev   *widget.Entry
 	ctlResult  *widget.Label
 	trayHint   *widget.Label
+	applyTray  func(status string)
 	verLabel   *widget.Label
 	logView    *widget.Entry
 	logScroll  *container.Scroll
@@ -258,6 +259,12 @@ func main() {
 	if os.Getenv("FYNE_SCALE") == "" {
 		os.Setenv("FYNE_SCALE", "1")
 	}
+	minimized := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--minimized" || arg == "-minimized" {
+			minimized = true
+		}
+	}
 	a := app.NewWithID("com.mugshot.server")
 	a.SetIcon(fyne.NewStaticResource("mugshot.svg", iconSVG))
 
@@ -300,11 +307,13 @@ func main() {
 	u.startPolling()
 	// 有系统托盘时：关闭窗口只隐藏，进程继续在后台运行，真正退出走托盘菜单；
 	// 不支持托盘的环境（如无桌面会话）退回"关窗即退出"，避免窗口消失后无从恢复。
-	if u.setupTray(a, w) {
+	trayOn := u.setupTray(a, w)
+	if trayOn {
 		if u.trayHint != nil {
 			u.trayHint.SetText("托盘已启用：关闭窗口只隐藏，托盘菜单可显示窗口、重启/停止/启动服务。")
 		}
 		w.SetCloseIntercept(func() { w.Hide() })
+		ensureAutostart()
 	} else {
 		if u.trayHint != nil {
 			u.trayHint.SetText("当前桌面会话不支持系统托盘（缺少 DBus / StatusNotifier 宿主），关闭窗口将退出程序。")
@@ -313,6 +322,12 @@ func main() {
 			u.stop()
 			w.Close()
 		})
+	}
+	// --minimized：登录自启动时直接收进托盘，不弹主窗口（无托盘时仍显示窗口）
+	if trayOn && minimized {
+		w.Hide()
+		a.Run()
+		return
 	}
 	w.ShowAndRun()
 }
@@ -332,27 +347,58 @@ func (u *ui) setupTray(a fyne.App, w fyne.Window) bool {
 		return false
 	}
 	desk.SetSystemTrayIcon(fyne.NewStaticResource("mugshot.png", iconPNG))
-	show := fyne.NewMenuItem("显示主窗口", func() {
-		w.Show()
-		w.RequestFocus()
-	})
-	// 托盘里直接控制 systemd 服务，不必先打开窗口再进设置页
-	restart := fyne.NewMenuItem("重启服务", func() { u.controlService("restart", "重启服务") })
-	stop := fyne.NewMenuItem("停止服务", func() { u.controlService("stop", "停止服务") })
-	start := fyne.NewMenuItem("启动服务", func() { u.controlService("start", "启动服务") })
-	quit := fyne.NewMenuItem("退出", func() {
-		u.stop()
-		a.Quit()
-	})
-	// IsQuit 让 Fyne 复用这一项作为退出入口，避免自动追加一个英文 Quit 菜单项。
-	quit.IsQuit = true
-	desk.SetSystemTrayMenu(fyne.NewMenu("Mugshot",
-		show,
-		fyne.NewMenuItemSeparator(),
-		restart, stop, start,
-		fyne.NewMenuItemSeparator(),
-		quit,
-	))
+
+	apply := func(status string) {
+		statusItem := fyne.NewMenuItem(status, nil)
+		statusItem.Disabled = true
+		show := fyne.NewMenuItem("显示主窗口", func() {
+			w.Show()
+			w.RequestFocus()
+		})
+		// 托盘里直接控制 systemd 服务，不必先打开窗口再进设置页
+		restart := fyne.NewMenuItem("重启服务", func() { u.controlService("restart", "重启服务") })
+		stop := fyne.NewMenuItem("停止服务", func() { u.controlService("stop", "停止服务") })
+		start := fyne.NewMenuItem("启动服务", func() { u.controlService("start", "启动服务") })
+		quit := fyne.NewMenuItem("退出", func() {
+			u.stop()
+			a.Quit()
+		})
+		// IsQuit 让 Fyne 复用这一项作为退出入口，避免自动追加一个英文 Quit 菜单项。
+		quit.IsQuit = true
+		desk.SetSystemTrayMenu(fyne.NewMenu("Mugshot",
+			statusItem,
+			fyne.NewMenuItemSeparator(),
+			show,
+			fyne.NewMenuItemSeparator(),
+			restart, stop, start,
+			fyne.NewMenuItemSeparator(),
+			quit,
+		))
+	}
+	u.applyTray = apply
+	apply("服务状态：检测中…")
+
+	// 托盘菜单里的服务状态随健康检查结果刷新，开着窗口时也能一眼看到服务是否在跑。
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-u.quit:
+				return
+			case <-ticker.C:
+				status := "服务状态：未运行"
+				if u.online.Load() {
+					status = "服务状态：运行中"
+				}
+				fyne.Do(func() {
+					if u.applyTray != nil {
+						u.applyTray(status)
+					}
+				})
+			}
+		}
+	}()
 	return true
 }
 

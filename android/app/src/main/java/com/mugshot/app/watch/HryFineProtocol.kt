@@ -261,7 +261,7 @@ object HryFineProtocol {
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
     fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health()): Health = when (sub) {
-        0x0C, 0x0A -> base.copy(
+        0x0C -> base.copy(
             steps = int32(p, 0) ?: base.steps,
             distanceM = int32(p, 4) ?: base.distanceM,
             kcal = int32(p, 8) ?: base.kcal,
@@ -287,11 +287,20 @@ object HryFineProtocol {
                 bpDia = p[4 + lastIdx * 8 + 7].toInt() and 0xFF,
             )
         }
-        0x09 -> base.copy(
-            sleepLightMin = u16(p, 4),
-            sleepDeepMin = u16(p, 6),
-            sleepAwakeMin = u16(p, 10),
-        )
+        0x09 -> {
+            var light = u16(p, 4)
+            var deep = u16(p, 6)
+            // 部分固件把「深睡」写成 16 位但高字节残留，导致总量超过一天：退回按低字节读取
+            if ((light ?: 0) + (deep ?: 0) > 1440) {
+                light = p.getOrNull(5)?.toInt()?.and(0xFF)
+                deep = p.getOrNull(7)?.toInt()?.and(0xFF)
+            }
+            base.copy(
+                sleepLightMin = light,
+                sleepDeepMin = deep,
+                sleepAwakeMin = u16(p, 10),
+            )
+        }
         0x0E -> base.copy(spo2 = p.getOrNull(11)?.toInt()?.and(0xFF))
         else -> base
     }

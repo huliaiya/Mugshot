@@ -5,26 +5,25 @@
     android:orientation="vertical"
     android:padding="20dp">
 
+    <TextView
+        android:id="@+id/log_hint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/log_hint"
+        android:textSize="13sp"
+        android:textColor="@color/text_sub" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
+        android:layout_marginTop="8dp"
+        android:gravity="end|center_vertical"
         android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/log_hint"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/log_hint"
-            android:textSize="13sp"
-            android:textColor="@color/text_sub" />
 
         <Button
             android:id="@+id/btn_log_mode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
             android:text="@string/btn_log_history"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
@@ -48,8 +47,9 @@
     <ScrollView
         android:id="@+id/log_scroll"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_marginTop="12dp"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
         android:background="@drawable/card_bg"
         android:fillViewport="true">
 

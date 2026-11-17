@@ -22,6 +22,7 @@ object Prefs {
     const val KEY_WATCH_ENABLED = "watch_enabled"
     const val KEY_WATCH_ADDRESS = "watch_address"
     const val KEY_WATCH_NAME = "watch_name"
+    const val KEY_WATCH_NAME_MANUAL = "watch_name_manual"
     const val KEY_WATCH_USER_ID = "watch_user_id"
 
     /** 主题模式：0 跟随系统 / 1 浅色 / 2 深色 */
@@ -82,6 +83,11 @@ object Prefs {
     var watchName: String
         get() = sp(MugshotApp.instance).getString(KEY_WATCH_NAME, "") ?: ""
         set(v) = sp(MugshotApp.instance).edit().putString(KEY_WATCH_NAME, v.trim()).apply()
+
+    /** 用户手动改过手表名称后不再用蓝牙广播名覆盖 */
+    var watchNameManual: Boolean
+        get() = sp(MugshotApp.instance).getBoolean(KEY_WATCH_NAME_MANUAL, false)
+        set(v) = sp(MugshotApp.instance).edit().putBoolean(KEY_WATCH_NAME_MANUAL, v).apply()
 
     /** 8 位 ASCII 绑定 ID：手表记住该 ID，必须持久化且不要频繁更换 */
     var watchUserId: String
