@@ -198,6 +198,21 @@ export function watchView(p) {
   }
 }
 
+/** 血糖：用户手动录入，手表协议不提供 */
+export function glucoseView(p) {
+  const g = p?.glucose
+  const v = Number(g?.value)
+  if (!g || !Number.isFinite(v) || v <= 0) return { glucose_on: false }
+  const statuses = ["空腹", "餐后 1 小时", "餐后 2 小时", "餐后 3 小时"]
+  const status = statuses[Number(g.status)] || statuses[0]
+  return {
+    glucose_on: true,
+    glucose_text: `${v.toFixed(1)} mmol/L`,
+    glucose_status_text: status,
+    glucose_time_text: g.measured_at ? formatShortTime(g.measured_at) : "-",
+  }
+}
+
 /** 上报 payload -> 状态卡字段 */
 export function basicView(p) {
   const payload = p || {}
@@ -228,6 +243,7 @@ export function statusView(resp) {
     ...deviceView(d),
     ...basicView(r?.payload),
     ...watchView(r?.payload),
+    ...glucoseView(r?.payload),
     report_time: formatShortTime(Number(r?.timestamp) || Number(r?.at) || reportTimestamp(d)),
     source_text: meta.text,
     source_class: meta.cls,

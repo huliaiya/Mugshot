@@ -19,6 +19,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.mugshot.app.watch.WatchManager
 
 /**
  * 设备状态上报前台服务（specialUse 类型）。
@@ -90,9 +91,19 @@ class ReportService : Service(), WsClient.Listener {
         fun reconnectNow() {
             activeService?.wsClient?.reconnectNow()
         }
+
+        /** 手表测量完成等场景：让服务立即上报一次 */
+        fun reportNow(reason: String) {
+            activeService?.wsClient?.reportNow(reason)
+        }
     }
 
     private var wsClient: WsClient? = null
+
+    /** 手表测量完成回调：服务存活时立刻补一次上报，界面是否在前台都不影响 */
+    private val measuredListener: (String) -> Unit = { label ->
+        wsClient?.reportNow("手表$label测量完成")
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -140,12 +151,14 @@ class ReportService : Service(), WsClient.Listener {
         scheduleFallbackWork()
         isRunning = true
         currentState = WsClient.STATE_CONNECTING
+        WatchManager.addMeasureListener(measuredListener)
         // START_STICKY：进程被杀后系统重建服务（intent 为 null），上面已处理
         return START_STICKY
     }
 
     override fun onDestroy() {
         LogStore.log("service", "上报服务停止（isRunning=${isRunning}）")
+        WatchManager.removeMeasureListener(measuredListener)
         wsClient?.stop()
         wsClient = null
         if (activeService === this) activeService = null

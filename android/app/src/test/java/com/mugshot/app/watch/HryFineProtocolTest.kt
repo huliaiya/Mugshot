@@ -183,4 +183,75 @@ class HryFineProtocolTest {
         assertEquals(8, (packed ushr 6) and 0x3F)
         assertEquals(9, packed and 0x3F)
     }
+
+    @Test
+    fun dayTotalsDecodeLittleEndian() {
+        // 05/0C：步 5820 = 0x16BC、距 3860 = 0x0F14、卡 215 = 0x00D7（小端）
+        val p = ByteArray(12).apply {
+            this[0] = 0xBC.toByte(); this[1] = 0x16
+            this[4] = 0x14; this[5] = 0x0F
+            this[8] = 0xD7.toByte()
+        }
+        val h = HryFineProtocol.decodeHealth(0x0C, p)
+        assertEquals(5820, h.steps)
+        assertEquals(3860, h.distanceM)
+        assertEquals(215, h.kcal)
+    }
+
+    @Test
+    fun hourlyBucketsSumStepsDistanceAndKcal() {
+        // 05/02：2 字节日期 + 24 组 8 字节（步 u16、距 u16、卡 u32，小端）
+        val p = ByteArray(2 + 24 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = (steps and 0xFF).toByte()
+            p[at + 1] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 2] = (dist and 0xFF).toByte()
+            p[at + 3] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 4] = (kcal and 0xFF).toByte()
+            p[at + 5] = ((kcal shr 8) and 0xFF).toByte()
+            p[at + 6] = ((kcal shr 16) and 0xFF).toByte()
+            p[at + 7] = ((kcal shr 24) and 0xFF).toByte()
+        }
+        put(2, 120, 84, 5)
+        put(2 + 8, 300, 210, 12)
+        // 0xFFFF 表示无数据，应跳过
+        p[2 + 16] = 0xFF.toByte()
+        p[2 + 17] = 0xFF.toByte()
+        val h = HryFineProtocol.decodeHealth(0x02, p)
+        assertEquals(420, h.steps)
+        assertEquals(294, h.distanceM)
+        assertEquals(17, h.kcal)
+        assertEquals(420, h.hourlySteps)
+    }
+
+    @Test
+    fun hourlyCorruptBucketIsDropped() {
+        // 单小时 30000 步是字节序错位读出的脏值，整桶丢弃，不污染其它小时
+        val p = ByteArray(2 + 24 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = (steps and 0xFF).toByte()
+            p[at + 1] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 2] = (dist and 0xFF).toByte()
+            p[at + 3] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 4] = (kcal and 0xFF).toByte()
+        }
+        put(2, 120, 84, 5)
+        put(2 + 8, 30000, 999, 500)
+        put(2 + 16, 300, 210, 12)
+        val h = HryFineProtocol.decodeHealth(0x02, p)
+        assertEquals(420, h.steps)
+        assertEquals(294, h.distanceM)
+        assertEquals(17, h.kcal)
+    }
+
+    @Test
+    fun dayTotalsRejectOutOfRangeValues() {
+        // 全 0xFF：小端/大端都超上限，保持原值不变
+        val p = ByteArray(12) { 0xFF.toByte() }
+        val base = HryFineProtocol.Health(steps = 11, distanceM = 22, kcal = 33)
+        val h = HryFineProtocol.decodeHealth(0x0C, p, base)
+        assertEquals(11, h.steps)
+        assertEquals(22, h.distanceM)
+        assertEquals(33, h.kcal)
+    }
 }

@@ -71,10 +71,12 @@ object WatchManager {
     private const val WRITE_TIMEOUT_MS = 400L
     private const val CONNECT_TIMEOUT_MS = 15000L
     private const val CANDIDATE_PUBLISH_MS = 400L
+    private const val MEASURE_TIMEOUT_MS = 120_000L
     private val RECONNECT_DELAYS = longArrayOf(5_000, 10_000, 20_000, 40_000, 60_000)
 
     private val main = Handler(Looper.getMainLooper())
     private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Snapshot) -> Unit>()
+    private val measureListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
 
     private lateinit var ctx: Context
     private var initialized = false
@@ -165,6 +167,15 @@ object WatchManager {
 
     fun removeListener(l: (Snapshot) -> Unit) {
         listeners.remove(l)
+    }
+
+    /** 测量完成回调（参数为「心率」「血压」「血氧」等指标名），用于即时上报 */
+    fun addMeasureListener(l: (String) -> Unit) {
+        if (!measureListeners.contains(l)) measureListeners.add(l)
+    }
+
+    fun removeMeasureListener(l: (String) -> Unit) {
+        measureListeners.remove(l)
     }
 
     fun snapshot(): Snapshot = snap.copy(enabled = Prefs.watchEnabled)
@@ -445,6 +456,8 @@ object WatchManager {
         readStarted = false
         writeQueue.clear()
         writeBusy = false
+        pendingMeasureLabel = null
+        pendingMeasureDeadline = 0L
         main.removeCallbacks(writeTick)
         connectedDevice = null
         version = 0x01
@@ -767,10 +780,34 @@ object WatchManager {
 
     fun measureSpo2() = measure(HryFineProtocol.SUB_MEASURE_SPO2)
 
+    private var pendingMeasureLabel: String? = null
+    private var pendingMeasureDeadline = 0L
+
     private fun measure(sub: Int) {
         if (snap.state != STATE_CONNECTED) return
         writeFrame(HryFineProtocol.GROUP_GENERAL, sub, byteArrayOf(0x01))
-        LogStore.log("watch", "请求测量 sub=%02X".format(sub))
+        val label = when (sub) {
+            HryFineProtocol.SUB_MEASURE_HEART -> "心率"
+            HryFineProtocol.SUB_MEASURE_BP -> "血压"
+            HryFineProtocol.SUB_MEASURE_SPO2 -> "血氧"
+            else -> "健康"
+        }
+        pendingMeasureLabel = label
+        pendingMeasureDeadline = System.currentTimeMillis() + MEASURE_TIMEOUT_MS
+        LogStore.log("watch", "请求测量 sub=%02X（%s），完成后将即时上报".format(sub, label))
+    }
+
+    /** 测量结果落地后通知服务端补一次上报；超时未回则放弃，避免状态残留 */
+    private fun notifyMeasuredIfPending(label: String) {
+        val pending = pendingMeasureLabel ?: return
+        if (pending != label) return
+        if (System.currentTimeMillis() > pendingMeasureDeadline) {
+            pendingMeasureLabel = null
+            return
+        }
+        pendingMeasureLabel = null
+        LogStore.log("watch", "测量结果已更新（$label），触发即时上报")
+        main.post { measureListeners.forEach { it(label) } }
     }
 
     private fun syncToday() {
@@ -872,7 +909,10 @@ object WatchManager {
 
     private fun handleFrame(frame: HryFineProtocol.Frame) {
         if (!frame.isAck) {
-            val hex = frame.payload.take(24).joinToString("") { "%02X".format(it) }
+            // 测量/健康类帧把整段载荷都记下来：新指标（尿酸/血脂/血糖）字段布局要靠实测字节定位
+            val full = frame.group == HryFineProtocol.GROUP_GENERAL || frame.group == HryFineProtocol.GROUP_SPORTS
+            val data = if (full) frame.payload else frame.payload.take(24)
+            val hex = data.joinToString("") { "%02X".format(it) }
             LogStore.log("watch", "收到 %02X/%02X 长度 %d%s".format(frame.group, frame.sub, frame.payload.size, if (hex.isEmpty()) "" else " 数据 $hex"))
         }
         when (frame.group) {
@@ -941,6 +981,7 @@ object WatchManager {
     }
 
     private fun applyHealth() {
+        val prev = snap
         snap = snap.copy(
             steps = health.steps ?: health.hourlySteps?.takeIf { it > 0 } ?: snap.steps,
             distanceM = health.distanceM ?: snap.distanceM,
@@ -955,6 +996,10 @@ object WatchManager {
                 ?: snap.sleepMin,
         )
         publish()
+        // 主动测量：值一旦落到卡片上就立刻上报，用户无需等待下一轮定时上报
+        if (snap.heartRate != prev.heartRate) notifyMeasuredIfPending("心率")
+        if (snap.bpSys != prev.bpSys || snap.bpDia != prev.bpDia) notifyMeasuredIfPending("血压")
+        if (snap.spo2 != prev.spo2) notifyMeasuredIfPending("血氧")
     }
 
     private fun scheduleReconnect() {
@@ -1006,6 +1051,7 @@ object WatchManager {
         val parts = mutableListOf<String>()
         if (s.battery >= 0) parts += "电量=${s.battery}%"
         if (s.steps >= 0) parts += "步数=${s.steps}"
+        if (s.distanceM >= 0) parts += "距离=${s.distanceM}米"
         if (s.heartRate >= 0) parts += "心率=${s.heartRate}"
         if (s.spo2 >= 0) parts += "血氧=${s.spo2}%"
         if (s.sleepMin >= 0) parts += "睡眠=${s.sleepMin}分钟"

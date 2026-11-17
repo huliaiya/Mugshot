@@ -230,7 +230,50 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- 权限面板 -->
+        <!-- 血糖卡：手表不提供血糖，由用户手动录入，随上报一起发送 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="8dp"
+            android:text="@string/home_section_glucose"
+            android:textColor="@color/text_main"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/glucose_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/glucose_none"
+                android:textColor="@color/text_main"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/glucose_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/text_sub"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_glucose_record"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/btn_glucose_record" />
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/perm_panel"
             android:layout_width="match_parent"

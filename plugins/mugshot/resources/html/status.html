@@ -130,6 +130,23 @@
     </div>
   </div>
   {{ /if }}
+
+  {{ if glucose_on }}
+  <div class="grid">
+    <div class="cell">
+      <div class="label">血糖（手动录入）</div>
+      <div class="value">{{ glucose_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">测量场景</div>
+      <div class="value">{{ glucose_status_text }}</div>
+    </div>
+    <div class="cell">
+      <div class="label">记录时间</div>
+      <div class="value">{{ glucose_time_text }}</div>
+    </div>
+  </div>
+  {{ /if }}
   <div class="meta">
     <span>上报时间：{{ report_time }}{{ if last_report_ago }}（{{ last_report_ago }}）{{ /if }}</span>
     <span>设备 ID：{{ device_id_short }}</span>

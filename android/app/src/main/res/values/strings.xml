@@ -116,6 +116,7 @@
     <string name="value_net_mobile">移动数据</string>
     <string name="value_never">尚未上报</string>
     <string name="home_section_watch">蓝牙手表</string>
+    <string name="home_section_glucose">血糖记录</string>
     <string name="watch_title_off">手表数据</string>
     <string name="watch_title_on">%1$s</string>
     <string name="watch_status_off">开启后连接 HryFine 手表，读取步数、心率、血氧与睡眠</string>
@@ -131,6 +132,16 @@
     <string name="label_watch_bp">血压</string>
     <string name="label_watch_firmware">固件</string>
     <string name="label_watch_sync">手表同步</string>
+    <string name="btn_glucose_record">记录血糖</string>
+    <string name="glucose_dialog_title">记录血糖</string>
+    <string name="glucose_hint">数值（mmol/L，1.0 ~ 33.0）</string>
+    <string name="glucose_range_error">请输入 1.0 ~ 33.0 之间的数值</string>
+    <string name="glucose_saved">已记录血糖，正在上报</string>
+    <string name="glucose_status_fasting">空腹</string>
+    <string name="glucose_status_after1">餐后 1 小时</string>
+    <string name="glucose_status_after2">餐后 2 小时</string>
+    <string name="glucose_status_after3">餐后 3 小时</string>
+    <string name="glucose_none">未记录（手表不提供血糖，需手动录入）</string>
     <string name="btn_watch_connect">扫描连接</string>
     <string name="btn_watch_sync">立即同步</string>
     <string name="btn_watch_unbind">解除绑定</string>
@@ -157,7 +168,7 @@
     <string name="btn_measure_heart">测心率</string>
     <string name="btn_measure_bp">测血压</string>
     <string name="btn_measure_spo2">测血氧</string>
-    <string name="watch_measure_tip">已下发测量指令，请保持手表佩戴并等待结果</string>
+    <string name="watch_measure_tip">已下发测量指令，请保持手表佩戴；结果出来后会立即上报一次</string>
     <string name="watch_need_connect">请先在连接页选择并连接手表</string>
     <string name="home_detail_service">后台服务运行中</string>
     <string name="home_detail_offline">服务未运行，点击"重新测试连接"检查配置</string>

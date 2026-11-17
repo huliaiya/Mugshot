@@ -220,7 +220,26 @@ class WsClient(
         sendReport(webSocket, requestId, snapshot)
     }
 
-    private fun sendReport(webSocket: WebSocket, requestId: String?, s: StatusCollector.Snapshot) {
+    /**
+     * 立即上报一次（手表测量完成、刷新按钮等场景）：
+     * 未连接时不排队，避免断开期间堆积；下次定时上报仍会带上最新数据。
+     */
+    fun reportNow(reason: String) {
+        val socket = ws
+        if (closed || socket == null || state != STATE_ONLINE) {
+            LogStore.log("ws", "$reason：服务端未连接，跳过即时上报（下次定时上报会带上最新数据）")
+            return
+        }
+        val s = StatusCollector.collect(context)
+        sendReport(socket, null, s, reason)
+    }
+
+    private fun sendReport(
+        webSocket: WebSocket,
+        requestId: String?,
+        s: StatusCollector.Snapshot,
+        immediateReason: String? = null,
+    ) {
         val t0 = System.currentTimeMillis()
         val payload = ReportPayloadBuilder.build(context, s)
         val report = JSONObject().apply {
@@ -234,7 +253,11 @@ class WsClient(
         Prefs.lastReportTs = System.currentTimeMillis()
         reportSeq++
         val collectMs = System.currentTimeMillis() - t0
-        val kind = if (!requestId.isNullOrEmpty()) "按需上报(响应服务器要求)" else "定时上报"
+        val kind = when {
+            !requestId.isNullOrEmpty() -> "按需上报(响应服务器要求)"
+            !immediateReason.isNullOrEmpty() -> "即时上报($immediateReason)"
+            else -> "定时上报"
+        }
         LogStore.log(
             "ws", "$kind #$reportSeq ${body.length}B 采集+发送 ${collectMs}ms：" +
                 StatusCollector.describe(context, s)

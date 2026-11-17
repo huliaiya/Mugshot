@@ -70,3 +70,45 @@ func TestReportPayloadWithoutWatchOmitsField(t *testing.T) {
 		t.Fatalf("empty watch should be omitted: %s", out)
 	}
 }
+
+func TestReportPayloadGlucoseRoundTrip(t *testing.T) {
+	raw := []byte(`{
+		"battery_level": 42,
+		"glucose": {"value": 5.6, "unit": "mmol/L", "status": 2, "measured_at": 1700000000000}
+	}`)
+	var p ReportPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p.Glucose == nil {
+		t.Fatal("glucose is nil")
+	}
+	if p.Glucose.Value != 5.6 || p.Glucose.Status != 2 || p.Glucose.MeasuredAt != 1700000000000 {
+		t.Fatalf("unexpected glucose: %+v", p.Glucose)
+	}
+	out, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back ReportPayload
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-unmarshal: %v", err)
+	}
+	if back.Glucose == nil || back.Glucose.Value != 5.6 {
+		t.Fatalf("round trip lost glucose: %+v", back.Glucose)
+	}
+}
+
+func TestReportPayloadWithoutGlucoseOmitsField(t *testing.T) {
+	out, err := json.Marshal(ReportPayload{BatteryLevel: 50})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := m["glucose"]; ok {
+		t.Fatalf("empty glucose should be omitted: %s", out)
+	}
+}

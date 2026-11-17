@@ -261,18 +261,33 @@ object HryFineProtocol {
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
     fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health()): Health = when (sub) {
-        0x0C -> base.copy(
-            steps = int32(p, 0) ?: base.steps,
-            distanceM = int32(p, 4) ?: base.distanceM,
-            kcal = int32(p, 8) ?: base.kcal,
-        )
-        0x02 -> {
-            var sum = 0
-            for (h in 0 until 24) {
-                val v = u16(p, 2 + h * 8) ?: continue
-                if (v != 0xFFFF) sum += v
+        0x0C -> {
+            // 当天总计：步/距/卡各 4 字节。协议文档给的是小端，但个别固件按大端写，
+            // 两种都算一遍，取落在合理区间内的那个，避免读出天文数字
+            val le = totalsAt(p, little = true)
+            val be = totalsAt(p, little = false)
+            when {
+                le != null -> base.copy(steps = le[0], distanceM = le[1], kcal = le[2])
+                be != null -> base.copy(steps = be[0], distanceM = be[1], kcal = be[2])
+                else -> base
             }
-            base.copy(hourlySteps = sum)
+        }
+        0x02 -> {
+            // 24 组 × 8 字节：步数 u16、距离 u16（米）、卡路里 u32
+            val le = hourlyAt(p, little = true)
+            val be = hourlyAt(p, little = false)
+            val h = when {
+                le != null -> le
+                be != null -> be
+                else -> return base
+            }
+            // 逐时汇总只在缺当天总计（0x0C）时兜底，避免把更粗的统计覆盖到权威值上
+            base.copy(
+                steps = base.steps ?: h.steps,
+                distanceM = base.distanceM ?: h.distance,
+                kcal = base.kcal ?: h.kcal,
+                hourlySteps = h.steps,
+            )
         }
         0x04 -> {
             val count = p.getOrNull(3)?.toInt() ?: 0
@@ -305,16 +320,76 @@ object HryFineProtocol {
         else -> base
     }
 
+    /** 0x0C 三项总计（步/距/卡）以合理上限判定是哪一种字节序，越界视为无效 */
+    private fun totalsAt(p: ByteArray, little: Boolean): IntArray? {
+        if (p.size < 12) return null
+        val steps = u32(p, 0, little) ?: return null
+        val distance = u32(p, 4, little) ?: return null
+        val kcal = u32(p, 8, little) ?: return null
+        if (steps > 240_000 || distance > 192_000 || kcal > 4_464_000) return null
+        return intArrayOf(steps, distance, kcal)
+    }
+
+    private class Hourly(val steps: Int, val distance: Int, val kcal: Int)
+
+    /**
+     * 0x02 的 24 个 8 字节小时桶（步 u16、距 u16 米、卡 u32）。
+     * 文档给的是小端；0xFFFF 表示该小时无数据，单小时 >20000 步视为错位脏值整桶丢弃。
+     * 日期前缀 2 字节个别固件不带，按长度自动识别偏移。
+     */
+    private fun hourlyAt(p: ByteArray, little: Boolean): Hourly? {
+        val offset = when {
+            p.size >= 2 + 24 * 8 -> 2
+            p.size >= 24 * 8 -> 0
+            else -> return null
+        }
+        var steps = 0
+        var distance = 0
+        var kcal = 0
+        var bad = 0
+        for (h in 0 until 24) {
+            val at = offset + h * 8
+            val st = u16(p, at, little) ?: return null
+            if (st == 0xFFFF) continue
+            if (st > 20_000) {
+                bad++
+                continue
+            }
+            steps += st
+            distance += u16(p, at + 2, little) ?: return null
+            kcal += u32(p, at + 4, little) ?: return null
+        }
+        // 有脏桶且一个有效桶都没有：多半是字节序猜反，交给另一种字节序重试
+        if (bad > 0 && steps == 0 && distance == 0 && kcal == 0) return null
+        if (steps > 100_000 || distance > 200_000 || kcal > 4_464_000) return null
+        return Hourly(steps, distance, kcal)
+    }
+
     private fun u16(b: ByteArray, at: Int): Int? {
         if (b.size < at + 2) return null
         return ((b[at].toInt() and 0xFF) shl 8) or (b[at + 1].toInt() and 0xFF)
     }
 
-    private fun int32(b: ByteArray, at: Int): Int? {
+    private fun u16(b: ByteArray, at: Int, little: Boolean): Int? {
+        if (b.size < at + 2) return null
+        return if (little) {
+            (b[at].toInt() and 0xFF) or ((b[at + 1].toInt() and 0xFF) shl 8)
+        } else {
+            ((b[at].toInt() and 0xFF) shl 8) or (b[at + 1].toInt() and 0xFF)
+        }
+    }
+
+    private fun u32(b: ByteArray, at: Int, little: Boolean): Int? {
         if (b.size < at + 4) return null
-        return ((b[at].toInt() and 0xFF) shl 24) or
-            ((b[at + 1].toInt() and 0xFF) shl 16) or
-            ((b[at + 2].toInt() and 0xFF) shl 8) or
-            (b[at + 3].toInt() and 0xFF)
+        val b0 = b[at].toInt() and 0xFF
+        val b1 = b[at + 1].toInt() and 0xFF
+        val b2 = b[at + 2].toInt() and 0xFF
+        val b3 = b[at + 3].toInt() and 0xFF
+        val v = if (little) {
+            b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
+        } else {
+            (b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3
+        }
+        return if (v < 0) null else v
     }
 }

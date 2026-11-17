@@ -78,6 +78,16 @@
     <div class="row"><span class="k">同步时间</span><span class="v">{{ watch_sync_text }}</span></div>
   </div>
   {{ /if }}
+
+  {{ if glucose_on }}
+  <div class="section">
+    <h3>血糖</h3>
+    <div class="row"><span class="k">数值</span><span class="v">{{ glucose_text }}</span></div>
+    <div class="row"><span class="k">测量场景</span><span class="v">{{ glucose_status_text }}</span></div>
+    <div class="row"><span class="k">记录时间</span><span class="v">{{ glucose_time_text }}</span></div>
+    <div class="row"><span class="k">说明</span><span class="v">手动录入，手表不提供血糖数据</span></div>
+  </div>
+  {{ /if }}
   {{ if recent && recent.length }}
   <div class="section">
     <h3>最近上报记录</h3>

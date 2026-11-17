@@ -124,6 +124,17 @@ type ReportPayload struct {
 	DeviceModel        string              `json:"device_model,omitempty"`
 	AppVersion         string              `json:"app_version,omitempty"`
 	Watch              *WatchInfo          `json:"watch,omitempty"` // 已开启的手表同步数据
+	Glucose            *GlucoseInfo        `json:"glucose,omitempty"`
+}
+
+// GlucoseInfo is a user-entered blood glucose reading. The watch firmware and
+// the HryFine protocol do not carry this value, so it is typed in manually and
+// stored on the phone; the app attaches the latest record to each report.
+type GlucoseInfo struct {
+	Value      float64 `json:"value"`                 // mmol/L, 1.0 - 33.0
+	Unit       string  `json:"unit,omitempty"`        // always mmol/L
+	Status     int     `json:"status"`                // 0 fasting, 1-3 post-meal hours
+	MeasuredAt int64   `json:"measured_at,omitempty"` // epoch millis
 }
 
 // Report is one status submission.
