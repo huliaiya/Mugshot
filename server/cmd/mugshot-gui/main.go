@@ -266,6 +266,12 @@ func main() {
 			minimized = true
 		}
 	}
+	if msg := displayProblem(); msg != "" {
+		// 无图形会话时 Fyne 会直接崩在驱动初始化里，用户只看到"双击没反应"；
+		// 这里提前退出并打印可操作的原因，配合启动器写入的日志便于排查。
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
 	a := app.NewWithID("com.mugshot.server")
 	a.SetIcon(fyne.NewStaticResource("mugshot.svg", iconSVG))
 

@@ -100,6 +100,11 @@ class ReportService : Service(), WsClient.Listener {
         wsClient?.reportNow("手表${label}测量完成")
     }
 
+    /** 手表健康数据同步完成回调：同步拿到新步数后立即上报，插件无需等下一轮定时上报 */
+    private val syncedListener: () -> Unit = {
+        wsClient?.reportNow("手表数据同步完成")
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -147,6 +152,7 @@ class ReportService : Service(), WsClient.Listener {
         isRunning = true
         currentState = WsClient.STATE_CONNECTING
         WatchManager.addMeasureListener(measuredListener)
+        WatchManager.addSyncListener(syncedListener)
         WatchManager.refreshAutoSync()
         // START_STICKY：进程被杀后系统重建服务（intent 为 null），上面已处理
         return START_STICKY
@@ -155,6 +161,7 @@ class ReportService : Service(), WsClient.Listener {
     override fun onDestroy() {
         LogStore.log("service", "上报服务停止（isRunning=${isRunning}）")
         WatchManager.removeMeasureListener(measuredListener)
+        WatchManager.removeSyncListener(syncedListener)
         WatchManager.stopAutoSync()
         wsClient?.stop()
         wsClient = null

@@ -78,6 +78,7 @@ object WatchManager {
     private val main = Handler(Looper.getMainLooper())
     private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Snapshot) -> Unit>()
     private val measureListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+    private val syncListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
     private lateinit var ctx: Context
     private var initialized = false
@@ -177,6 +178,20 @@ object WatchManager {
 
     fun removeMeasureListener(l: (String) -> Unit) {
         measureListeners.remove(l)
+    }
+
+    /** 健康数据同步完成回调：让上报服务立刻补一次上报，插件不必等下一轮定时上报 */
+    fun addSyncListener(l: () -> Unit) {
+        if (!syncListeners.contains(l)) syncListeners.add(l)
+    }
+
+    fun removeSyncListener(l: () -> Unit) {
+        syncListeners.remove(l)
+    }
+
+    private fun notifySynced() {
+        if (syncListeners.isEmpty()) return
+        main.post { syncListeners.forEach { it() } }
     }
 
     fun snapshot(): Snapshot = snap.copy(enabled = Prefs.watchEnabled)
@@ -903,8 +918,23 @@ object WatchManager {
         main.post { measureListeners.forEach { it(label) } }
     }
 
+    /** 跨天后先清掉昨天的步数/距离/消耗，避免手表未回包时把旧值继续当成今天的数据 */
+    private var stepsDay = ""
+    private fun resetIfNewDay() {
+        val today = java.time.LocalDate.now().toString()
+        if (stepsDay == today) return
+        val first = stepsDay.isEmpty()
+        stepsDay = today
+        if (first) return
+        snap = snap.copy(steps = -1, distanceM = -1, kcal = -1)
+        health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
+        LogStore.log("watch", "跨天，已清空昨日步数")
+        publish()
+    }
+
     private fun syncHealth() {
         if (snap.state != STATE_CONNECTED) return
+        resetIfNewDay()
         // 每轮同步前清空活动类字段（步数/距离/消耗），保留心率血压等最近测量值。
         // 背景：整天总计（0x0C）并非每次都会回包，若不清空，上一轮的旧步数会一直
         // 挡住这一轮按小时汇总（0x02）算出的新值，表现为步数停在首次连接时的数字。
@@ -932,6 +962,9 @@ object WatchManager {
                 snap = snap.copy(updatedAt = System.currentTimeMillis())
                 publish()
                 LogStore.log("watch", "手表数据同步完成：" + describe(snap))
+                // 同步拿到的新数据要立刻上报，否则插件只能看到上一轮定时上报的快照，
+                // 表现为步数一直停在首次连接时的数字
+                notifySynced()
             }
         }, 500L * (subs.size + 8))
     }
@@ -1114,6 +1147,8 @@ object WatchManager {
                 return
             }
             health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
+            resetIfNewDay()
+            val before = snap.steps
             // 与完整同步同样成帧：开始 -> 当天总计 -> 逐时汇总 -> 结束
             writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
             val steps = listOf(HryFineProtocol.SUB_HEALTH_TODAY_TOTAL, HryFineProtocol.SUB_HEALTH_HOURLY)
@@ -1125,6 +1160,8 @@ object WatchManager {
             main.postDelayed({
                 if (snap.state == STATE_CONNECTED) {
                     writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
+                    // 每分钟刷新只在步数确实变化时补报，避免把上报频率抬到 5 倍
+                    if (snap.steps != before) notifySynced()
                 }
             }, 400L * (steps.size + 2))
             main.postDelayed(this, STEP_REFRESH_MS)

@@ -264,6 +264,18 @@ object HryFineProtocol {
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
     fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health()): Health = when (sub) {
+        0x0A -> {
+            // 当天整包：每轮同步都会请求，但头部日期字段长度因固件而异，
+            // 按候选偏移逐个尝试，命中当天总计或逐时汇总即采用。
+            // 之前没有这个分支，整包回包被直接丢弃，表现为步数只在首次连接时更新。
+            val day = todayAt(p, little = true) ?: todayAt(p, little = false) ?: return base
+            base.copy(
+                steps = base.steps ?: day.steps,
+                distanceM = base.distanceM ?: day.distance,
+                kcal = base.kcal ?: day.kcal,
+                hourlySteps = base.hourlySteps ?: day.hourly,
+            )
+        }
         0x0C -> {
             // 当天总计：步/距/卡各 4 字节。协议文档给的是小端，但个别固件按大端写，
             // 两种都算一遍，取落在合理区间内的那个，避免读出天文数字
@@ -324,16 +336,37 @@ object HryFineProtocol {
     }
 
     /** 0x0C 三项总计（步/距/卡）以合理上限判定是哪一种字节序，越界视为无效 */
-    private fun totalsAt(p: ByteArray, little: Boolean): IntArray? {
-        if (p.size < 12) return null
-        val steps = u32(p, 0, little) ?: return null
-        val distance = u32(p, 4, little) ?: return null
-        val kcal = u32(p, 8, little) ?: return null
+    private fun totalsAt(p: ByteArray, little: Boolean, off: Int = 0): IntArray? {
+        if (p.size < off + 12) return null
+        val steps = u32(p, off, little) ?: return null
+        val distance = u32(p, off + 4, little) ?: return null
+        val kcal = u32(p, off + 8, little) ?: return null
         if (steps > 240_000 || distance > 192_000 || kcal > 4_464_000) return null
         return intArrayOf(steps, distance, kcal)
     }
 
     private class Hourly(val steps: Int, val distance: Int, val kcal: Int)
+
+    private class Day(val steps: Int, val distance: Int, val kcal: Int, val hourly: Int?)
+
+    /**
+     * 0x0A（当天整包）解析：整包可能是「日期前缀 + 24 小时桶」，
+     * 也可能是「日期前缀 + 步/距/卡总计」。先按整包小时桶识别（长度足够且数值合理才成立），
+     * 再退回总计三元组，按候选偏移逐个尝试，命中即采用；都不成立返回 null。
+     */
+    private fun todayAt(p: ByteArray, little: Boolean): Day? {
+        // 逐时整包至少 24×8 字节：先按小时桶求和；不足这个长度的一定是总计三元组，
+        // 避免把总计当成小时桶重复累加。
+        if (p.size >= 24 * 8) {
+            hourlyAt(p, little)?.let { return Day(it.steps, it.distance, it.kcal, it.steps) }
+        }
+        for (off in intArrayOf(2, 0, 4, 6, 8)) {
+            if (p.size < off + 12) continue
+            val t = totalsAt(p, little, off) ?: continue
+            return Day(t[0], t[1], t[2], null)
+        }
+        return null
+    }
 
     /**
      * 0x02 的 24 个 8 字节小时桶（步 u16、距 u16 米、卡 u32）。

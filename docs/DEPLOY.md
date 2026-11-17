@@ -392,3 +392,4 @@ Android 发布签名使用仓库内置的 `android/app/mugshot-release.keystore`
 | 按钮不显示 | 仅 QQBot 适配器支持按钮，其他协议端正常降级 |
 | 更新检查失败 | 插件：插件目录不是 git 仓库（改用 `git clone` 安装）或仓库无 `origin`；服务端：`github_repo` 未改成实际仓库，或服务器无法访问 GitHub（配置 `github_mirror`） |
 | GUI"设置"页保存失败（HTTP 500） | 服务用户没有写 `/etc/mugshot` 的权限：先升级到 v1.0.18+（单元增加 `ReadWritePaths=/etc/mugshot`，postinst 会把目录归属改为 `mugshot`）再 `sudo systemctl restart mugshot-server`；v1.0.18 起目录不可写时自动回退为原地覆写，日志会给出具体原因（`journalctl -u mugshot-server | grep 保存设置失败`） |
+| 双击"Mugshot 服务端"没有反应 | 桌面入口已改为经 `mugshot-gui-launcher` 启动：日志写到 `~/.cache/mugshot/gui.log`，首次失败会自动用软件渲染（llvmpipe）重试一次，仍失败会弹窗给出缺库的安装命令。手动排查：`cat ~/.cache/mugshot/gui.log`；缺图形库时 `sudo apt install -y libgl1 libglvnd0 libopengl0 libegl1 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxrender1 libxxf86vm1 libosmesa6`；无桌面/SSH 会话改用 `mugshot-ctl` |

@@ -18,6 +18,11 @@ func ensureAutostart() {
 	if err != nil || exe == "" {
 		return
 	}
+	// 安装包附带启动器时优先走启动器：它会把启动失败写日志并做软件渲染兜底，
+	// 直接用二进制路径则缺少图形库时用户只会看到"登录后没有托盘图标"。
+	if launcher := launcherPath(exe); launcher != "" {
+		exe = launcher
+	}
 	base, err := os.UserConfigDir()
 	if err != nil || base == "" {
 		return
@@ -32,6 +37,15 @@ func ensureAutostart() {
 		return
 	}
 	_ = os.WriteFile(path, []byte(content), 0o644)
+}
+
+// launcherPath 返回与 GUI 同目录下的启动器路径；不存在时返回空串（开发环境直接运行二进制）。
+func launcherPath(exe string) string {
+	cand := filepath.Join(filepath.Dir(exe), "mugshot-gui-launcher")
+	if st, err := os.Stat(cand); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+		return cand
+	}
+	return ""
 }
 
 // autostartEntry 生成 .desktop 内容，Exec 中的路径按规范加引号转义。

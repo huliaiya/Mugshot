@@ -1,0 +1,63 @@
+#!/bin/sh
+# mugshot-gui 桌面启动器
+# 目的：桌面双击/菜单启动时，如果 GUI 因缺少 OpenGL/X11 运行库、显卡驱动异常
+# 或远程桌面会话没有硬件加速而直接退出，界面上看不到任何提示（表现为"双击没反应"）。
+# 这里把标准输出与错误写进日志，失败时自动改用软件渲染重试一次，
+# 仍然失败则弹窗告知具体原因和补救命令。
+set -u
+
+BIN="/usr/bin/mugshot-gui"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mugshot"
+LOG="$LOG_DIR/gui.log"
+mkdir -p "$LOG_DIR" 2>/dev/null || LOG="/tmp/mugshot-gui.log"
+
+show_error() {
+  msg="$1"
+  if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="Mugshot 服务端" --width=460 --text="$msg" 2>/dev/null && return
+  fi
+  if command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "Mugshot 服务端" --error "$msg" 2>/dev/null && return
+  fi
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send -i mugshot "Mugshot 服务端启动失败" "$msg" 2>/dev/null && return
+  fi
+  if command -v xmessage >/dev/null 2>&1; then
+    xmessage -center "$msg" 2>/dev/null && return
+  fi
+}
+
+run_gui() {
+  {
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') 启动 mugshot-gui $* ==="
+  } >>"$LOG"
+  "$BIN" "$@" >>"$LOG" 2>&1
+}
+
+# 首次按常规方式启动；使用硬件 GL 时显卡驱动有问题会崩溃退出
+run_gui "$@"
+status=$?
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+{
+  echo "=== 首次启动失败（退出码 $status），改用软件渲染重试 ==="
+} >>"$LOG"
+
+LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_LOADER_DRIVER_OVERRIDE=llvmpipe run_gui "$@"
+status=$?
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+recent="$(tail -n 6 "$LOG" 2>/dev/null)"
+show_error "Mugshot 服务端无法启动（退出码 $status）。
+
+详细日志：$LOG
+
+$recent
+
+若缺少图形库，可执行：
+sudo apt install -y libgl1 libglvnd0 libopengl0 libegl1 libx11-6 libxcursor1 libxi6 libxinerama1 libxrandr2 libxrender1 libxxf86vm1 libosmesa6"
+exit "$status"

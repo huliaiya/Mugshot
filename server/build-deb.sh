@@ -44,6 +44,7 @@ install -m 0644 "$DIR/mugshot-server.service" "$STAGE/etc/systemd/system/mugshot
 # 菜单只保留一个"Mugshot 服务端"图形入口；mugshot-ctl 保留二进制供无桌面/SSH 时终端运行，不再注册菜单图标
 if [[ -n "$GUI" ]]; then
   install -m 0755 "$GUI" "$STAGE/usr/bin/mugshot-gui"
+  install -m 0755 "$DIR/mugshot-gui-launcher" "$STAGE/usr/bin/mugshot-gui-launcher"
   install -m 0644 "$DIR/mugshot-gui.desktop" "$STAGE/usr/share/applications/mugshot-gui.desktop"
   # 图标单一来源：GUI 包内的 icon.svg
   install -m 0644 "$DIR/../cmd/mugshot-gui/icon.svg" "$STAGE/usr/share/icons/hicolor/scalable/apps/mugshot.svg"
@@ -69,9 +70,20 @@ SIZE_KB=$(( ($(stat -c%s "$BIN") / 1024) + 128 ))
 if [[ -n "$GUI" ]]; then
   SIZE_KB=$(( SIZE_KB + $(stat -c%s "$GUI") / 1024 ))
 fi
+# GUI 是 Fyne（cgo + OpenGL + X11）程序：直接加载的库进 Depends，
+# 运行期按需 dlopen 的 libXcursor/libOSMesa 等与软件渲染驱动进 Recommends，
+# 保证在无桌面的服务器上安装不会因为拉一堆图形库而失败或明显变大。
+GUI_DEPENDS=""
+GUI_RECOMMENDS=""
+if [[ -n "$GUI" ]]; then
+  GUI_DEPENDS=", libgl1, libglvnd0, libx11-6, libxau6, libxdmcp6, libxcb1, libbsd0"
+  GUI_RECOMMENDS=", libopengl0, libegl1, libxcursor1, libxi6, libxinerama1, libxrandr2, libxrender1, libxxf86vm1, libgl1-mesa-dri, libosmesa6"
+fi
 sed -e "s/@VERSION@/$VERSION/g" \
     -e "s/@ARCH@/$ARCH/g" \
     -e "s/@INSTALLED_SIZE@/$SIZE_KB/g" \
+    -e "s/@GUI_DEPENDS@/$GUI_DEPENDS/g" \
+    -e "s/@GUI_RECOMMENDS@/$GUI_RECOMMENDS/g" \
     "$DIR/control" > "$STAGE/DEBIAN/control"
 
 # ---- 维护脚本（必须可执行）----

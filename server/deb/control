@@ -4,8 +4,8 @@ Section: net
 Priority: optional
 Architecture: @ARCH@
 Maintainer: huliaiya <huangshaoyehuang@gmail.com>
-Depends: systemd
-Recommends: ca-certificates
+Depends: systemd@GUI_DEPENDS@
+Recommends: ca-certificates@GUI_RECOMMENDS@
 Installed-Size: @INSTALLED_SIZE@
 Homepage: https://github.com/huliaiya/Mugshot
 Description: Mugshot 设备状态服务端
@@ -15,3 +15,4 @@ Description: Mugshot 设备状态服务端
  支持 request_report 按需上报、多设备、数据保留期与自更新。
  安装后自动创建 mugshot 系统用户、生成 /etc/mugshot/config.json
  （首次启动自动生成随机 token）并以 systemd 服务常驻。
+ 附带图形管理程序，可在应用菜单中打开查看状态、设备与日志。
