@@ -34,6 +34,20 @@
   .battery-fill.unknown { background-color: #4f46e5; background-image: repeating-linear-gradient(45deg, rgba(34,211,238,.65) 0 9px, rgba(167,139,250,.5) 9px 18px); }
   .app-hero .pkg { font-size: 13px; color: #8a93ad; margin-top: 4px; word-break: break-all; }
   .meta { font-size: 14px; color: #8a93ad; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+  .watch { background: rgba(10,16,30,.55); border: 1px solid #263150; border-left: 3px solid {{ backdrop.accents[2] }}; border-radius: 16px; padding: 20px 24px; margin-bottom: 18px; }
+  .watch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .watch-head .wname { font-size: 19px; font-weight: 700; }
+  .watch-head .wtag { font-size: 13px; color: #8a93ad; margin-left: 10px; font-weight: 500; }
+  .watch-badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .watch-badge.on { background: rgba(61,213,152,.16); color: #3dd598; border: 1px solid rgba(61,213,152,.45); }
+  .watch-badge.off { background: rgba(140,150,175,.16); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .watch-batt { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dashed #24314e; }
+  .watch-batt .wk { font-size: 14px; color: {{ backdrop.accents[3] }}; }
+  .watch-batt .wv { font-size: 17px; font-weight: 700; min-width: 54px; text-align: right; }
+  .watch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; }
+  .wm .wk { font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 6px; }
+  .wm .wv { font-size: 20px; font-weight: 700; }
+  .watch-foot { display: flex; justify-content: space-between; font-size: 13px; color: #8a93ad; margin-top: 16px; padding-top: 12px; border-top: 1px solid #1f2a44; }
 </style>
 </head>
 <body>
@@ -92,46 +106,25 @@
   {{ /if }}
 
   {{ if watch_on }}
-  <div class="grid">
-    <div class="cell">
-      <div class="label">手表 {{ watch_name }}</div>
-      <div class="battery-row">
-        <div class="battery-bar"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div>
-        <div class="value">{{ watch_battery_text }}</div>
-      </div>
+  <div class="watch">
+    <div class="watch-head">
+      <div><span class="wname">{{ watch_name }}</span><span class="wtag">手表健康</span></div>
+      <div class="watch-badge {{ watch_connected ? "on" : "off" }}">{{ watch_state_text }}</div>
     </div>
-    <div class="cell">
-      <div class="label">手表状态</div>
-      <div class="value">{{ watch_state_text }}</div>
+    <div class="watch-batt">
+      <span class="wk">电量</span>
+      <div class="battery-bar"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div>
+      <span class="wv">{{ watch_battery_text }}</span>
     </div>
-    <div class="cell">
-      <div class="label">今日步数</div>
-      <div class="value">{{ watch_steps_text }}</div>
+    <div class="watch-grid">
+      <div class="wm"><div class="wk">今日步数</div><div class="wv">{{ watch_steps_text }}</div></div>
+      <div class="wm"><div class="wk">心率</div><div class="wv">{{ watch_heart_text }}</div></div>
+      <div class="wm"><div class="wk">血压</div><div class="wv">{{ watch_bp_text }}</div></div>
+      <div class="wm"><div class="wk">血氧</div><div class="wv">{{ watch_spo2_text }}</div></div>
+      <div class="wm"><div class="wk">睡眠</div><div class="wv">{{ watch_sleep_text }}</div></div>
+      <div class="wm"><div class="wk">距离</div><div class="wv">{{ watch_distance_text }}</div></div>
     </div>
-    <div class="cell">
-      <div class="label">心率</div>
-      <div class="value">{{ watch_heart_text }}</div>
-    </div>
-    <div class="cell">
-      <div class="label">血压</div>
-      <div class="value">{{ watch_bp_text }}</div>
-    </div>
-    <div class="cell">
-      <div class="label">血氧</div>
-      <div class="value">{{ watch_spo2_text }}</div>
-    </div>
-    <div class="cell">
-      <div class="label">睡眠</div>
-      <div class="value">{{ watch_sleep_text }}</div>
-    </div>
-    <div class="cell">
-      <div class="label">消耗 / 距离</div>
-      <div class="value">{{ watch_kcal_text }} · {{ watch_distance_text }}</div>
-    </div>
-    <div class="cell">
-      <div class="label">手表同步</div>
-      <div class="value">{{ watch_sync_text }}</div>
-    </div>
+    <div class="watch-foot"><span>消耗 {{ watch_kcal_text }}</span><span>同步 {{ watch_sync_text }}</span></div>
   </div>
   {{ /if }}
 

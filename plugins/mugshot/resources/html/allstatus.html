@@ -43,6 +43,18 @@
   .urow .ub { flex: 1; height: 8px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.14); }
   .urow .uf { display: block; height: 100%; border-radius: 999px; }
   .meta { font-size: 13px; color: #8b93a7; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; margin-top: 4px; }
+  .watch { border-top: 1px dashed rgba(255,255,255,.16); margin-top: 12px; padding-top: 10px; }
+  .watch .uk { display: flex; align-items: center; font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 8px; }
+  .watch .uk .wtag { margin-left: 10px; font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .watch .uk .wtag.on { background: rgba(61,213,152,.18); color: #5fe3ac; border: 1px solid rgba(61,213,152,.45); }
+  .watch .uk .wtag.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .wgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 24px; }
+  .wrow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+  .wrow .wk { color: {{ backdrop.accents[3] }}; }
+  .wrow .wv { color: #eef3fb; font-weight: 600; }
+  .wfoot { display: flex; gap: 20px; font-size: 13px; color: #aab4cc; margin-top: 9px; }
+  .wrow .battery { flex: 0 0 auto; gap: 6px; }
+  .wrow .battery .bar { flex: 0 0 auto; width: 88px; min-width: 0; height: 10px; }
 </style>
 </head>
 <body>
@@ -70,9 +82,22 @@
         <div class="row"><span class="k">充电</span><span class="v">{{ d.chargingText }}</span></div>
         <div class="row"><span class="k">温度</span><span class="v">{{ d.tempText }}</span></div>
         <div class="row wide"><span class="k">后台应用</span><span class="v">{{ d.backgroundText || "-" }}</span></div>
-        {{ if d.watch_on }}<div class="row"><span class="k">手表</span><span class="v">{{ d.watch_name }} · {{ d.watch_line }}</span></div>{{ /if }}
         <div class="row"><span class="k">最近上报</span><span class="v">{{ d.last_report_short }}</span></div>
       </div>
+      {{ if d.watch_on }}
+      <div class="watch">
+        <div class="uk">手表 {{ d.watch_name }}<span class="wtag {{ d.watch_connected ? "on" : "off" }}">{{ d.watch_state_text }}</span></div>
+        <div class="wgrid">
+          <div class="wrow"><span class="wk">电量</span><span class="wv"><span class="battery"><span class="bar"><span class="fill {{ d.watch_battery_class }}" style="width: {{ d.watch_battery_width }}%;"></span></span> {{ d.watch_battery_text }}</span></span></div>
+          <div class="wrow"><span class="wk">今日步数</span><span class="wv">{{ d.watch_steps_text }}</span></div>
+          <div class="wrow"><span class="wk">心率</span><span class="wv">{{ d.watch_heart_text }}</span></div>
+          <div class="wrow"><span class="wk">血压</span><span class="wv">{{ d.watch_bp_text }}</span></div>
+          <div class="wrow"><span class="wk">血氧</span><span class="wv">{{ d.watch_spo2_text }}</span></div>
+          <div class="wrow"><span class="wk">睡眠</span><span class="wv">{{ d.watch_sleep_text }}</span></div>
+        </div>
+        <div class="wfoot"><span>消耗 {{ d.watch_kcal_text }}</span><span>距离 {{ d.watch_distance_text }}</span><span>同步 {{ d.watch_sync_text }}</span></div>
+      </div>
+      {{ /if }}
       {{ if d.usage.length }}
       <div class="usage">
         <div class="uk">近 24 小时使用<span class="total">共 {{ d.usage_total }}</span></div>

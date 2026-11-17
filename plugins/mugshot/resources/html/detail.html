@@ -25,6 +25,27 @@
   table.hist td { padding: 8px; color: #c8d0e0; border-bottom: 1px solid #1f2a44; }
   table.hist tr:last-child td { border-bottom: none; }
   .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+  .watch { background: rgba(10,16,30,.55); border: 1px solid #263150; border-left: 3px solid {{ backdrop.accents[2] }}; border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; }
+  .watch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .watch-head .wname { font-size: 19px; font-weight: 700; }
+  .watch-head .wtag { font-size: 13px; color: #8a93ad; margin-left: 10px; font-weight: 500; }
+  .watch-badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .watch-badge.on { background: rgba(61,213,152,.16); color: #3dd598; border: 1px solid rgba(61,213,152,.45); }
+  .watch-badge.off { background: rgba(140,150,175,.16); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .watch-batt { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dashed #24314e; }
+  .watch-batt .wk { font-size: 14px; color: {{ backdrop.accents[3] }}; }
+  .watch-batt .wv { font-size: 17px; font-weight: 700; min-width: 54px; text-align: right; }
+  .battery-bar { flex: 1; height: 14px; background: rgba(10,16,30,.65); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.22); box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+  .battery-fill { display: block; height: 100%; min-width: 6px; border-radius: 999px; background-color: #22d3ee; background-image: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .battery-fill.hi { background-color: #22e08a; background-image: linear-gradient(90deg, #00e5ff, #22e08a, #d0f224); box-shadow: 0 0 12px rgba(34,224,138,.7); }
+  .battery-fill.mid { background-color: #fb923c; background-image: linear-gradient(90deg, #ffc400, #ff8a3d, #ff5fa2); box-shadow: 0 0 12px rgba(255,138,61,.7); }
+  .battery-fill.lo { background-color: #ff2d55; background-image: linear-gradient(90deg, #ff2d55, #ff6b81, #ff9f43); box-shadow: 0 0 12px rgba(255,45,85,.7); }
+  .battery-fill.unknown { background-color: #4f46e5; background-image: repeating-linear-gradient(45deg, rgba(34,211,238,.65) 0 9px, rgba(167,139,250,.5) 9px 18px); }
+  .watch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; }
+  .wm .wk { font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 6px; }
+  .wm .wv { font-size: 20px; font-weight: 700; }
+  .watch-foot { display: flex; justify-content: space-between; font-size: 13px; color: #8a93ad; margin-top: 16px; padding-top: 12px; border-top: 1px solid #1f2a44; }
+  .wmeta { font-size: 13px; color: #66708a; margin-top: 10px; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -64,19 +85,26 @@
   {{ /if }}
 
   {{ if watch_on }}
-  <div class="section">
-    <h3>手表 {{ watch_name }}</h3>
-    <div class="row"><span class="k">连接状态</span><span class="v">{{ watch_state_text }}</span></div>
-    <div class="row"><span class="k">电量</span><span class="v">{{ watch_battery_text }}</span></div>
-    <div class="row"><span class="k">今日步数</span><span class="v">{{ watch_steps_text }}</span></div>
-    <div class="row"><span class="k">心率</span><span class="v">{{ watch_heart_text }}</span></div>
-    <div class="row"><span class="k">血压</span><span class="v">{{ watch_bp_text }}</span></div>
-    <div class="row"><span class="k">血氧</span><span class="v">{{ watch_spo2_text }}</span></div>
-    <div class="row"><span class="k">睡眠</span><span class="v">{{ watch_sleep_text }}</span></div>
-    <div class="row"><span class="k">消耗 / 距离</span><span class="v">{{ watch_kcal_text }} · {{ watch_distance_text }}</span></div>
-    <div class="row"><span class="k">固件</span><span class="v">{{ watch_firmware_text }}</span></div>
-    <div class="row"><span class="k">能力</span><span class="v">{{ watch_features_text }}</span></div>
-    <div class="row"><span class="k">同步时间</span><span class="v">{{ watch_sync_text }}</span></div>
+  <div class="watch">
+    <div class="watch-head">
+      <div><span class="wname">{{ watch_name }}</span><span class="wtag">手表健康</span></div>
+      <div class="watch-badge {{ watch_connected ? "on" : "off" }}">{{ watch_state_text }}</div>
+    </div>
+    <div class="watch-batt">
+      <span class="wk">电量</span>
+      <div class="battery-bar"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div>
+      <span class="wv">{{ watch_battery_text }}</span>
+    </div>
+    <div class="watch-grid">
+      <div class="wm"><div class="wk">今日步数</div><div class="wv">{{ watch_steps_text }}</div></div>
+      <div class="wm"><div class="wk">心率</div><div class="wv">{{ watch_heart_text }}</div></div>
+      <div class="wm"><div class="wk">血压</div><div class="wv">{{ watch_bp_text }}</div></div>
+      <div class="wm"><div class="wk">血氧</div><div class="wv">{{ watch_spo2_text }}</div></div>
+      <div class="wm"><div class="wk">睡眠</div><div class="wv">{{ watch_sleep_text }}</div></div>
+      <div class="wm"><div class="wk">距离</div><div class="wv">{{ watch_distance_text }}</div></div>
+    </div>
+    <div class="watch-foot"><span>消耗 {{ watch_kcal_text }}</span><span>同步 {{ watch_sync_text }}</span></div>
+    <div class="wmeta">固件 {{ watch_firmware_text }} · 能力 {{ watch_features_text }}</div>
   </div>
   {{ /if }}
 
