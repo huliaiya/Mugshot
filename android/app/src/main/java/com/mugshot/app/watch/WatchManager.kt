@@ -958,7 +958,9 @@ object WatchManager {
                 if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
             }, 500L * (i + 1))
         }
-        val endAt = 500L * (subs.size + 1)
+        // 结束包给足 10 秒：手表的整包数据流顺序是 逐时步数 → 心率/血压 → 睡眠 → 当天总计，
+        // 4 秒就发 0x08 会把排在后面的睡眠截断，表现为步数正常但睡眠一直拿不到
+        val endAt = 10_000L
         // 0x08 同步结束：不回这个包，手表会停在同步态，后续同步请求可能被忽略
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
@@ -1070,6 +1072,8 @@ object WatchManager {
                 publish()
             }
             HryFineProtocol.GROUP_SPORTS -> if (!frame.isAck) {
+                // 0x08 由手表在历史数据流结束时主动发出，日志里能确认这一轮到底流了多久
+                if (frame.sub == HryFineProtocol.SUB_HEALTH_END) LogStore.log("watch", "手表历史数据流已结束")
                 health = HryFineProtocol.decodeHealth(frame.sub, frame.payload, health)
                 applyHealth()
             }
