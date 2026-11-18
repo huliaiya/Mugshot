@@ -288,7 +288,9 @@ object HryFineProtocol {
     )
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
-    fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health(), minDateKey: Int? = null): Health = when (sub) {
+    fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health(), minDateKey: Int? = null): Health {
+        // 用块体而不是表达式体：分支里需要提前 return base（表达式体不允许 return）
+        return when (sub) {
         0x0A -> {
             // 当天整包：每轮同步都会请求，但头部日期字段长度因固件而异，
             // 按候选偏移逐个尝试，命中当天总计或逐时汇总即采用。
@@ -364,6 +366,7 @@ object HryFineProtocol {
             base.copy(spo2 = v)
         }
         else -> base
+        }
     }
 
     /**
