@@ -336,4 +336,92 @@ class HryFineProtocolTest {
         assertEquals(22, h.distanceM)
         assertEquals(33, h.kcal)
     }
+
+    @Test
+    fun dayTotalWithDatePrefixDecodesTotals() {
+        // 05/0C：2 字节日期前缀 + 步/距/卡总计；偏移 0 读出的步距比不自洽，应落到偏移 2
+        val p = ByteArray(14).apply {
+            this[0] = 0x11
+            this[1] = 0x0B
+            this[2] = 0xBC.toByte(); this[3] = 0x16
+            this[6] = 0x14; this[7] = 0x0F
+            this[10] = 0xD7.toByte()
+        }
+        val h = HryFineProtocol.decodeHealth(0x0C, p)
+        assertEquals(5820, h.steps)
+        assertEquals(3860, h.distanceM)
+        assertEquals(215, h.kcal)
+    }
+
+    @Test
+    fun dayTotalsDecodeU16Triple() {
+        // 只按 u16 三项上报的固件：步 5820、距 3860、卡 215（小端）
+        val p = ByteArray(6).apply {
+            this[0] = 0xBC.toByte(); this[1] = 0x16
+            this[2] = 0x14; this[3] = 0x0F
+            this[4] = 0xD7.toByte()
+        }
+        val h = HryFineProtocol.decodeHealth(0x0C, p)
+        assertEquals(5820, h.steps)
+        assertEquals(3860, h.distanceM)
+        assertEquals(215, h.kcal)
+    }
+
+    @Test
+    fun dayTotalsRejectSentinelFill() {
+        // 0xFFFF 是「无数据」填充，不能当成 65535 步
+        val p = ByteArray(6) { 0xFF.toByte() }
+        val base = HryFineProtocol.Health(steps = 11, distanceM = 22, kcal = 33)
+        val h = HryFineProtocol.decodeHealth(0x0C, p, base)
+        assertEquals(11, h.steps)
+        assertEquals(22, h.distanceM)
+        assertEquals(33, h.kcal)
+    }
+
+    @Test
+    fun dayTotalsTooShortKeepsExistingValues() {
+        val p = ByteArray(3)
+        val base = HryFineProtocol.Health(steps = 11, distanceM = 22, kcal = 33)
+        val h = HryFineProtocol.decodeHealth(0x0C, p, base)
+        assertEquals(11, h.steps)
+    }
+
+    @Test
+    fun hourlyPartialBucketsAreSummed() {
+        // 部分固件只回到当前小时：2 字节日期 + 10 组 8 字节，不再要求满 24 组
+        val p = ByteArray(2 + 10 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = (steps and 0xFF).toByte()
+            p[at + 1] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 2] = (dist and 0xFF).toByte()
+            p[at + 3] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 4] = (kcal and 0xFF).toByte()
+        }
+        put(2, 120, 84, 5)
+        put(2 + 8, 300, 210, 12)
+        val h = HryFineProtocol.decodeHealth(0x02, p)
+        assertEquals(420, h.steps)
+        assertEquals(294, h.distanceM)
+        assertEquals(17, h.kcal)
+    }
+
+    @Test
+    fun todayPacketWithPartialBucketsSumsHours() {
+        // 05/0A 逐时整包也可能是部分桶：桶数 >= 6 仍按逐时汇总
+        val p = ByteArray(2 + 8 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = (steps and 0xFF).toByte()
+            p[at + 1] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 2] = (dist and 0xFF).toByte()
+            p[at + 3] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 4] = (kcal and 0xFF).toByte()
+        }
+        put(2, 120, 84, 5)
+        put(2 + 8, 300, 210, 12)
+        val h = HryFineProtocol.decodeHealth(0x0A, p)
+        assertEquals(420, h.steps)
+        assertEquals(294, h.distanceM)
+        assertEquals(17, h.kcal)
+        assertEquals(420, h.hourlySteps)
+    }
 }

@@ -277,15 +277,10 @@ object HryFineProtocol {
             )
         }
         0x0C -> {
-            // 当天总计：步/距/卡各 4 字节。协议文档给的是小端，但个别固件按大端写，
-            // 两种都算一遍，取落在合理区间内的那个，避免读出天文数字
-            val le = totalsAt(p, little = true)
-            val be = totalsAt(p, little = false)
-            when {
-                le != null -> base.copy(steps = le[0], distanceM = le[1], kcal = le[2])
-                be != null -> base.copy(steps = be[0], distanceM = be[1], kcal = be[2])
-                else -> base
-            }
+            // 当天总计：步/距/卡各 4 字节。个别固件会带 2 字节日期前缀，也有按大端写的，
+            // 候选偏移与两种字节序都试，取落在合理区间内的那个，避免读出天文数字
+            val t = totalsFrom(p) ?: return base
+            base.copy(steps = t[0], distanceM = t[1], kcal = t[2])
         }
         0x02 -> {
             // 24 组 × 8 字节：步数 u16、距离 u16（米）、卡路里 u32
@@ -335,14 +330,61 @@ object HryFineProtocol {
         else -> base
     }
 
-    /** 0x0C 三项总计（步/距/卡）以合理上限判定是哪一种字节序，越界视为无效 */
-    private fun totalsAt(p: ByteArray, little: Boolean, off: Int = 0): IntArray? {
-        if (p.size < off + 12) return null
-        val steps = u32(p, off, little) ?: return null
-        val distance = u32(p, off + 4, little) ?: return null
-        val kcal = u32(p, off + 8, little) ?: return null
+    /**
+     * 0x0C 三项总计（步/距/卡）：候选偏移 0/2/4/6 × 两种字节序 × u32/u16 两种宽度。
+     * 先按自洽性挑（距离、卡路里与步数的比例落在合理区间），
+     * 都不自洽时再退一步只做上限过滤，避免个别固件的距离单位不同导致整包被丢弃。
+     */
+    private fun totalsFrom(p: ByteArray): IntArray? {
+        val candidates = ArrayList<IntArray>()
+        for (width in intArrayOf(4, 2)) {
+            for (off in intArrayOf(0, 2, 4, 6)) {
+                for (little in booleanArrayOf(true, false)) {
+                    val t = totalsAt(p, little, off, width) ?: continue
+                    if (plausible(t[0], t[1], t[2])) return t
+                    candidates += t
+                }
+            }
+        }
+        return candidates.firstOrNull { it[0] > 0 && !isSentinel(it) }
+    }
+
+    /**
+     * 读取一组 (步/距/卡)，只做基本上限过滤，不判断比例。
+     * 错位读出的组合也常常落在上限内，因此调用方还要再用 [plausible] 校验。
+     */
+    private fun totalsAt(p: ByteArray, little: Boolean, off: Int, width: Int): IntArray? {
+        if (p.size < off + width * 3) return null
+        val steps = if (width == 4) u32(p, off, little) else u16(p, off, little)
+        val distance = if (width == 4) u32(p, off + width, little) else u16(p, off + width, little)
+        val kcal = if (width == 4) u32(p, off + width * 2, little) else u16(p, off + width * 2, little)
+        if (steps == null || distance == null || kcal == null) return null
         if (steps > 240_000 || distance > 192_000 || kcal > 4_464_000) return null
         return intArrayOf(steps, distance, kcal)
+    }
+
+    /** 全 0xFFFF/0xFFFFFFFF 是「无数据」填充，不能当成真实步数 */
+    private fun isSentinel(t: IntArray): Boolean = t.any {
+        it == 0xFFFF || it == 0xFFFF_FFFF.toInt()
+    }
+
+    /**
+     * 步/距/卡是否互相自洽。
+     * 只靠上限过滤太松：错位读出的 1234/5678 也落在范围内，会变成一个永远不动的假步数。
+     * 真实数据里 距离≈0.15~2 米/步、卡路里≈0.005~0.25 千卡/步，用它排除错位组合。
+     * 只报步数（距离与卡路里为 0）的固件同样视为有效。
+     */
+    private fun plausible(steps: Int, distance: Int, kcal: Int): Boolean {
+        if (steps <= 0) return false
+        if (distance > 0) {
+            val perStep = distance.toDouble() / steps
+            if (perStep < 0.15 || perStep > 2.0) return false
+        }
+        if (kcal > 0) {
+            val perStep = kcal.toDouble() / steps
+            if (perStep < 0.005 || perStep > 0.25) return false
+        }
+        return true
     }
 
     private class Hourly(val steps: Int, val distance: Int, val kcal: Int)
@@ -350,41 +392,42 @@ object HryFineProtocol {
     private class Day(val steps: Int, val distance: Int, val kcal: Int, val hourly: Int?)
 
     /**
-     * 0x0A（当天整包）解析：整包可能是「日期前缀 + 24 小时桶」，
-     * 也可能是「日期前缀 + 步/距/卡总计」。先按整包小时桶识别（长度足够且数值合理才成立），
+     * 0x0A（当天整包）解析：整包可能是「日期前缀 + 逐时桶」，
+     * 也可能是「日期前缀 + 步/距/卡总计」。先按逐时整包识别（长度能被 8 整除且桶数够多），
      * 再退回总计三元组，按候选偏移逐个尝试，命中即采用；都不成立返回 null。
      */
     private fun todayAt(p: ByteArray, little: Boolean): Day? {
-        // 逐时整包至少 24×8 字节：先按小时桶求和；不足这个长度的一定是总计三元组，
-        // 避免把总计当成小时桶重复累加。
-        if (p.size >= 24 * 8) {
+        // 桶数太少（<6）时长度整除关系同样成立，会把总计段误读成小时桶，宁可走总计分支
+        for (off in intArrayOf(2, 0, 4, 6)) {
+            if (p.size <= off || (p.size - off) % 8 != 0) continue
+            val buckets = (p.size - off) / 8
+            if (buckets < 6 || buckets > 24) continue
             hourlyAt(p, little)?.let { return Day(it.steps, it.distance, it.kcal, it.steps) }
         }
-        for (off in intArrayOf(2, 0, 4, 6, 8)) {
-            if (p.size < off + 12) continue
-            val t = totalsAt(p, little, off) ?: continue
-            return Day(t[0], t[1], t[2], null)
-        }
-        return null
+        val t = totalsFrom(p) ?: return null
+        return Day(t[0], t[1], t[2], null)
     }
 
     /**
-     * 0x02 的 24 个 8 字节小时桶（步 u16、距 u16 米、卡 u32）。
+     * 0x02 的每小时 8 字节桶（步 u16、距 u16 米、卡 u32）。
      * 文档给的是小端；0xFFFF 表示该小时无数据，单小时 >20000 步视为错位脏值整桶丢弃。
-     * 日期前缀 2 字节个别固件不带，按长度自动识别偏移。
+     * 部分固件只回「到当前小时为止」的部分桶，因此按剩余长度算桶数，不强制 24 个。
+     * 日期前缀 2 字节个别固件不带，按长度能否被 8 整除自动识别偏移。
      */
     private fun hourlyAt(p: ByteArray, little: Boolean): Hourly? {
         val offset = when {
-            p.size >= 2 + 24 * 8 -> 2
-            p.size >= 24 * 8 -> 0
+            p.size >= 2 + 8 && (p.size - 2) % 8 == 0 -> 2
+            p.size >= 8 && p.size % 8 == 0 -> 0
             else -> return null
         }
+        val buckets = minOf(24, (p.size - offset) / 8)
+        if (buckets <= 0) return null
         var steps = 0
         var distance = 0
         var kcal = 0
         var bad = 0
         var valid = 0
-        for (h in 0 until 24) {
+        for (h in 0 until buckets) {
             val at = offset + h * 8
             val st = u16(p, at, little) ?: return null
             if (st == 0xFFFF) continue
