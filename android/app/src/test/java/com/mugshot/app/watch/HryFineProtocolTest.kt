@@ -641,7 +641,8 @@ class HryFineProtocolTest {
         val s = HryFineProtocol.decodeHealth(0x09, p)
         assertEquals(380, s.sleepLightMin)
         assertEquals(95, s.sleepDeepMin)
-        assertEquals(-1, s.sleepAwakeMin)
+        // 清醒字段无效时保持「未知」，不写 0 也不写 -1
+        assertNull(s.sleepAwakeMin)
     }
 
     @Test
