@@ -310,6 +310,29 @@ export function allStatusView(d) {
   }
 }
 
+/** 设备近 24 小时使用总分钟数；没有使用数据按 0 处理 */
+export function usageTotalMinutes(d) {
+  const usage = d?.last_report?.payload?.usage_24h
+  if (!Array.isArray(usage)) return 0
+  return usage.reduce((sum, u) => sum + Math.max(0, Number(u?.min) || 0), 0)
+}
+
+/**
+ * 设备按近 24 小时使用时长从多到少排序：用得最多的排最上面。
+ * 时长相同（含都没有数据）时在线优先，再按设备名排序，保证顺序稳定不来回跳。
+ */
+export function sortDevicesByUsage(devices) {
+  return [...(devices || [])].sort((a, b) => {
+    const diff = usageTotalMinutes(b) - usageTotalMinutes(a)
+    if (diff) return diff
+    const online = (b?.online ? 1 : 0) - (a?.online ? 1 : 0)
+    if (online) return online
+    const an = String(a?.device_name || a?.device_id || "")
+    const bn = String(b?.device_name || b?.device_id || "")
+    return an.localeCompare(bn, "zh-CN")
+  })
+}
+
 /** 分钟数 -> "x小时y分" / "y分钟" */
 export function formatMinutes(min) {
   const m = Math.max(0, Math.round(Number(min) || 0))

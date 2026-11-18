@@ -24,6 +24,7 @@ import {
   formatMinutes,
   maskDeviceID,
   pluginFooter,
+  sortDevicesByUsage,
   reportTimestamp,
 } from "./model/format.js"
 import { getBackdrop } from "./model/backdrop.js"
@@ -172,7 +173,7 @@ export class Mugshot extends plugin {
     } catch (err) {
       return this.#renderError("设备列表获取失败", err.message)
     }
-    const devices = (resp.devices || []).map(listView)
+    const devices = sortDevicesByUsage(resp.devices || []).map(listView)
     if (!devices.length) {
       return this.#renderError("暂无设备", "还没有任何 Android 设备接入。请先在手机上安装 Mugshot App 并完成配置。")
     }
@@ -442,7 +443,7 @@ export class Mugshot extends plugin {
 
   /** 全部设备状态 + 使用情况（随机背景图），#群主在干嘛（实时）/ #群主查看（快照）使用 */
   async #renderAllStatus(devices, live, cooldownNote = "", refresh = null) {
-    const rows = devices.map(allStatusView)
+    const rows = sortDevicesByUsage(devices).map(allStatusView)
     let liveHint = `已实时刷新各设备上报；单台可发 ${cmd("查看")} <设备名>`
     if (live && refresh && refresh.degraded > 0) {
       liveHint = `已触发实时上报，${refresh.degraded} 台未实时返回（冷却中或响应超时），已展示最近数据；单台可发 ${cmd("查看")} <设备名>`
