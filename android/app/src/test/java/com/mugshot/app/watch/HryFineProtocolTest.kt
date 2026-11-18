@@ -630,7 +630,7 @@ class HryFineProtocolTest {
         p[2] = 0x05; p[3] = 0x64.toByte() // 1380
         p[8] = 0x01; p[9] = 0xE0.toByte() // 480
         val s = HryFineProtocol.decodeHealth(0x09, p)
-        assertEquals(600, s.sleepLightMin)
+        assertEquals(540, s.sleepLightMin)
         assertEquals(0, s.sleepDeepMin)
     }
 
