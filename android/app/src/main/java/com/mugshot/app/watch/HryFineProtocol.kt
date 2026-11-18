@@ -350,40 +350,51 @@ object HryFineProtocol {
     }
 
     /**
-     * 0x09 睡眠：官方布局为 [0..1] 日期、[2..3] 入睡分钟、[4..5] 浅睡、[6..7] 深睡、
-     * [8..9] 起床分钟、[10..11] 清醒，全部大端 16 位。
-     * 仍保留小端与单字节读法兜底，但大端优先：用相反字节序读大端数据会得到
-     * 「高位字节乘以 256」的巨值，先试大端可避免误命中。
+     * 睡眠解析：官方布局为 [0..1] 日期、[2..3] 入睡、[4..5] 浅睡、[6..7] 深睡、
+     * [8..9] 起床、[10..11] 清醒（大端 16 位），仍保留小端与单字节兜底。
+     * 只接受「浅睡 + 深睡」落在 10~960 分钟的结果；清醒字段异常时丢清醒、
+     * 保留睡眠时长，避免一个坏字段把整包睡眠一起丢掉。
+     * 最后再兜底一次：手表只回入睡/起床时间时，用两者差值当总睡眠。
      */
     private fun sleepFrom(p: ByteArray): IntArray? {
-        val readers: List<(Int) -> Int?> = listOf(
+        val u16Readers: List<(Int) -> Int?> = listOf(
             { at -> u16(p, at, little = false) },
             { at -> u16(p, at, little = true) },
-            { at -> u8(p, at) },
         )
-        for (read in readers) {
+        for (read in u16Readers + listOf<(Int) -> Int?> { at -> u8(p, at) }) {
             for (l in SLEEP_LAYOUTS) {
                 val light = read(l[0])
                 val deep = read(l[1])
                 if (light == null || deep == null) continue
+                if (!sleepPlausible(light, deep)) continue
                 val awake = if (l[2] >= 0) read(l[2]) else null
-                if (l[2] >= 0 && awake == null) continue
-                if (sleepPlausible(light, deep, awake)) return intArrayOf(light, deep, awake ?: -1)
+                val total = light + deep
+                val keepAwake = awake != null && awake < 1440 && total + awake <= 1440
+                return intArrayOf(light, deep, if (keepAwake) awake!! else -1)
             }
+        }
+        for (read in u16Readers) {
+            val start = read(2) ?: continue
+            val end = read(8) ?: continue
+            if (start >= 1440 || end >= 1440 || start == end) continue
+            // 睡眠窗口跨零点：23:00 → 08:00 时 end 小于 start，按加一天处理
+            val span = if (end > start) end - start else 1440 - start + end
+            // 上限 16 小时，避免把错位读出的窗口当成整天睡眠
+            if (span in 10..960) return intArrayOf(span, 0, -1)
         }
         return null
     }
 
-    private fun sleepPlausible(light: Int, deep: Int, awake: Int?): Boolean {
-        // 官方解析器把 >1439 的字段直接清零，等于「该字段无效」，不能拿来相加上限
+    private fun sleepPlausible(light: Int, deep: Int): Boolean {
+        // 官方解析器把 >1439 的字段直接清零，等于「该字段无效」
         if (light >= 1440 || deep >= 1440) return false
-        // 0xFF 是「无数据」填充：单字节读法下会变成 255，必须按哨兵值排除
+        // 0xFF 是「无数据」填充：单字节读法下会变成 255
         if (light == 0xFF && deep == 0xFF) return false
-        if (awake != null && awake >= 1440) return false
-        val total = light + deep
-        if (total !in 10..1440) return false
-        if (awake != null && total + awake > 1440) return false
-        return true
+        // 浅睡为 0 只在「只回入睡/起床分钟」的包里出现，那种包交给窗口兜底，
+        // 否则偏移 2 位的候选布局会把起床分钟当成深睡
+        if (light <= 0) return false
+        // 一天睡眠上限按 16 小时算：超过说明是错位读出的「入睡/起床分钟」
+        return light + deep in 10..960
     }
 
     /**
@@ -439,10 +450,26 @@ object HryFineProtocol {
         if (p.size < off + width * 3) return null
         val steps = if (width == 4) u32(p, off, little) else u16(p, off, little)
         val distance = if (width == 4) u32(p, off + width, little) else u16(p, off + width, little)
-        val kcal = if (width == 4) u32(p, off + width * 2, little) else u16(p, off + width * 2, little)
-        if (steps == null || distance == null || kcal == null) return null
-        if (steps > 240_000 || distance > 192_000 || kcal > 4_464_000) return null
-        return intArrayOf(steps, distance, kcal)
+        val rawKcal = if (width == 4) u32(p, off + width * 2, little) else u16(p, off + width * 2, little)
+        if (steps == null || distance == null || rawKcal == null) return null
+        // 官方字段单位是「卡」，上限 4,464,000 也对应卡，先按原始量级校验
+        if (steps > 240_000 || distance > 192_000 || rawKcal > 4_464_000) return null
+        return intArrayOf(steps, distance, toKcal(steps, rawKcal))
+    }
+
+    /**
+     * 官方 kcal 字段是「卡」而不是千卡：8685 步会回 129240（=129.24 千卡）。
+     * 按每步数量的量级判断，每步超过 0.5 说明是卡，换算成千卡；
+     * 少数固件直接给千卡（每步 0.01~0.06），保持原值不动。
+     */
+    private fun toKcal(steps: Int, raw: Int): Int {
+        if (raw <= 0) return 0
+        val perStep = if (steps > 0) raw.toDouble() / steps else Double.MAX_VALUE
+        return if (perStep > 0.5 || (steps <= 0 && raw >= 1000)) {
+            Math.round(raw / 1000.0).toInt().coerceAtLeast(1)
+        } else {
+            raw
+        }
     }
 
     /** 全 0xFFFF/0xFFFFFFFF 是「无数据」填充，不能当成真实步数 */
@@ -530,7 +557,7 @@ object HryFineProtocol {
         // 有脏桶且一个有效桶都没有：多半是字节序猜反，交给另一种字节序重试
         if (bad > 0 && steps == 0 && distance == 0 && kcal == 0) return null
         if (steps > 100_000 || distance > 200_000 || kcal > 4_464_000) return null
-        return Hourly(steps, distance, kcal)
+        return Hourly(steps, distance, toKcal(steps, kcal))
     }
 
     private fun u16(b: ByteArray, at: Int): Int? {

@@ -583,4 +583,83 @@ class HryFineProtocolTest {
         assertEquals(118, h.bpSys)
         assertEquals(76, h.bpDia)
     }
+
+    @Test
+    fun kcalFieldIsCaloriesAndConvertedToKilocalories() {
+        // 官方 0x0C 回的是「卡」：8685 步 / 5385 米 / 129240 卡，应展示 129 千卡
+        val p = ByteArray(12).apply {
+            this[2] = 0x21; this[3] = 0xED.toByte() // 8685
+            this[6] = 0x15; this[7] = 0x09          // 5385
+            this[10] = 0x01; this[11] = 0x8D.toByte() // 129.24 千卡 → 取整前 129240 卡的高位在 [8..11]
+        }
+        // 129240 = 0x0001F8D8
+        p[8] = 0x00; p[9] = 0x01; p[10] = 0xF8.toByte(); p[11] = 0xD8.toByte()
+        val h = HryFineProtocol.decodeHealth(0x0C, p)
+        assertEquals(8685, h.steps)
+        assertEquals(5385, h.distanceM)
+        assertEquals(129, h.kcal)
+    }
+
+    @Test
+    fun kcalAlreadyInKilocaloriesIsKept() {
+        // 少数固件直接给千卡（215），不能再次除以 1000
+        val p = ByteArray(12).apply {
+            this[2] = 0x16; this[3] = 0xBC.toByte()
+            this[6] = 0x0F; this[7] = 0x14
+            this[11] = 0xD7.toByte()
+        }
+        assertEquals(215, HryFineProtocol.decodeHealth(0x0C, p).kcal)
+    }
+
+    @Test
+    fun hourlyKcalAlsoConvertsFromCalories() {
+        val p = ByteArray(2 + 24 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 1] = (steps and 0xFF).toByte()
+            p[at + 2] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 3] = (dist and 0xFF).toByte()
+            p[at + 4] = ((kcal shr 24) and 0xFF).toByte()
+            p[at + 5] = ((kcal shr 16) and 0xFF).toByte()
+            p[at + 6] = ((kcal shr 8) and 0xFF).toByte()
+            p[at + 7] = (kcal and 0xFF).toByte()
+        }
+        put(2, 120, 84, 25840)
+        put(2 + 8, 300, 210, 60000)
+        val h = HryFineProtocol.decodeHealth(0x02, p)
+        assertEquals(420, h.steps)
+        assertEquals(86, h.kcal)
+    }
+
+    @Test
+    fun sleepKeepsTotalWhenAwakeFieldIsInvalid() {
+        // 清醒字段损坏不应连带丢掉睡眠时长
+        val p = ByteArray(12)
+        p[4] = 0x01; p[5] = 0x7C.toByte() // 浅睡 380
+        p[6] = 0x00; p[7] = 0x5F          // 深睡 95
+        p[10] = 0xFF.toByte(); p[11] = 0xFF.toByte()
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertEquals(380, s.sleepLightMin)
+        assertEquals(95, s.sleepDeepMin)
+        assertEquals(-1, s.sleepAwakeMin)
+    }
+
+    @Test
+    fun sleepFallsBackToWindowWhenStagesAreZero() {
+        // 手表只回入睡 23:00(1380) 与起床 08:00(480)，跨零点求时长
+        val p = ByteArray(12)
+        p[2] = 0x05; p[3] = 0x64.toByte() // 1380
+        p[8] = 0x01; p[9] = 0xE0.toByte() // 480
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertEquals(540, s.sleepLightMin)
+        assertEquals(0, s.sleepDeepMin)
+    }
+
+    @Test
+    fun sleepAllZeroStaysEmpty() {
+        val base = HryFineProtocol.Health(sleepLightMin = 300, sleepDeepMin = 60)
+        val s = HryFineProtocol.decodeHealth(0x09, ByteArray(12), base)
+        assertEquals(300, s.sleepLightMin)
+        assertEquals(60, s.sleepDeepMin)
+    }
 }

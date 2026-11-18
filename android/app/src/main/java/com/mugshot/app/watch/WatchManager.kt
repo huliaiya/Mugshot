@@ -952,19 +952,27 @@ object WatchManager {
             0x05, // 血压
             0x09, // 睡眠
             0x0E, // 血氧
-            // 睡眠与血氧回包最先被逐时数据流挤掉，末尾补请求一次，避免整轮同步拿不到
-            0x09,
-            0x0E,
         )
         subs.forEachIndexed { i, sub ->
             main.postDelayed({
                 if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
             }, 500L * (i + 1))
         }
+        val endAt = 500L * (subs.size + 1)
         // 0x08 同步结束：不回这个包，手表会停在同步态，后续同步请求可能被忽略
         main.postDelayed({
+            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
+        }, endAt)
+        // 睡眠与血氧在结束包之后再补请求一次：手表在整包数据流期间不一定应答单指标请求，
+        // 只发在 0x08 之前时睡眠经常整轮拿不到
+        main.postDelayed({
+            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, 0x09)
+        }, endAt + 1200)
+        main.postDelayed({
+            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, 0x0E)
+        }, endAt + 2400)
+        main.postDelayed({
             if (snap.state == STATE_CONNECTED) {
-                writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
                 snap = snap.copy(updatedAt = System.currentTimeMillis())
                 publish()
                 LogStore.log("watch", "手表数据同步完成：" + describe(snap))
@@ -972,7 +980,7 @@ object WatchManager {
                 // 表现为步数一直停在首次连接时的数字
                 notifySynced()
             }
-        }, 500L * (subs.size + 8))
+        }, endAt + 4000)
     }
 
     @SuppressLint("MissingPermission")

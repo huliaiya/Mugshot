@@ -154,6 +154,18 @@ export function deviceView(d) {
   }
 }
 
+/**
+ * 手表 kcal 单位兜底：官方协议里卡路里字段是「卡」（8685 步回 129240），
+ * 旧版 App 会原样上报。每步超过 0.5 视为卡，换算成千卡后再展示。
+ */
+function normalizeWatchKcal(steps, kcal) {
+  if (!Number.isFinite(kcal) || kcal <= 0) return kcal
+  if (Number.isFinite(steps) && steps > 0) {
+    return kcal / steps > 0.5 ? Math.round(kcal / 1000) : kcal
+  }
+  return kcal >= 1000 ? Math.round(kcal / 1000) : kcal
+}
+
 /** 手表 payload -> 卡片字段；未开启/未连接时字段留空，由模板决定是否展示 */
 export function watchView(p) {
   const w = p?.watch
@@ -166,7 +178,8 @@ export function watchView(p) {
     return Number.isFinite(n) && n >= 0 ? n : null
   }
   const steps = num(w.steps)
-  const kcal = num(w.kcal)
+  const kcalRaw = num(w.kcal)
+  const kcal = kcalRaw === null ? null : normalizeWatchKcal(steps, kcalRaw)
   const dist = num(w.distance_m)
   const hr = num(w.heart_rate)
   const spo2 = num(w.spo2)
