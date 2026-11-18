@@ -158,6 +158,72 @@ class HryFineProtocolTest {
     }
 
     @Test
+    fun sleepDecodesLittleEndianLowBytes() {
+        // 小端写法的 440 / 90：B8 01 / 5A 00
+        val p = ByteArray(12)
+        p[4] = 0xB8.toByte(); p[5] = 0x01
+        p[6] = 0x5A; p[7] = 0x00
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertEquals(440, s.sleepLightMin)
+        assertEquals(90, s.sleepDeepMin)
+    }
+
+    @Test
+    fun sleepFallsBackToSingleByteWhenHighByteIsGarbage() {
+        // 高字节残留导致 16 位读出天文数字时，退回单字节读取
+        val p = ByteArray(12)
+        p[4] = 0xB8.toByte(); p[5] = 0xFF.toByte()
+        p[6] = 0x5A; p[7] = 0xFF.toByte()
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertEquals(184, s.sleepLightMin)
+        assertEquals(90, s.sleepDeepMin)
+    }
+
+    @Test
+    fun sleepRejectsPlaceholderFill() {
+        val p = ByteArray(12) { 0xFF.toByte() }
+        val base = HryFineProtocol.Health(sleepLightMin = 300, sleepDeepMin = 60)
+        val s = HryFineProtocol.decodeHealth(0x09, p, base)
+        assertEquals(300, s.sleepLightMin)
+        assertEquals(60, s.sleepDeepMin)
+    }
+
+    @Test
+    fun sleepRejectsZeroTotal() {
+        // 全 0 只说明当天还没睡够数据，不应把已有睡眠覆盖成 0
+        val p = ByteArray(12)
+        val base = HryFineProtocol.Health(sleepLightMin = 300, sleepDeepMin = 60)
+        val s = HryFineProtocol.decodeHealth(0x09, p, base)
+        assertEquals(300, s.sleepLightMin)
+        assertEquals(60, s.sleepDeepMin)
+    }
+
+    @Test
+    fun spo2DecodesCountPrefixedRecords() {
+        // 与心率同构：条数在 p[3]，其后每条 8 字节，数值在末字节
+        val p = ByteArray(20)
+        p[3] = 2
+        p[4 + 7] = 96
+        p[4 + 8 + 7] = 97
+        assertEquals(97, HryFineProtocol.decodeHealth(0x0E, p).spo2)
+    }
+
+    @Test
+    fun spo2RejectsPlaceholderValue() {
+        val p = ByteArray(12)
+        p[11] = 0
+        val base = HryFineProtocol.Health(spo2 = 98)
+        assertEquals(98, HryFineProtocol.decodeHealth(0x0E, p, base).spo2)
+    }
+
+    @Test
+    fun spo2MeasurementResultAlsoAcceptedOnSub1C() {
+        val p = ByteArray(12)
+        p[11] = 98
+        assertEquals(98, HryFineProtocol.decodeHealth(0x1C, p).spo2)
+    }
+
+    @Test
     fun healthHeartRateTakesLastSample() {
         val p = ByteArray(4 + 2 * 8)
         p[3] = 2

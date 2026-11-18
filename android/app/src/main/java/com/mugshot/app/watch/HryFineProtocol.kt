@@ -57,6 +57,16 @@ object HryFineProtocol {
     private const val HEADER_DATA = 0xDF
     private const val HEADER_ACK = 0xFD
 
+    /** 睡眠三元组（浅睡、深睡、清醒）的候选偏移，最后一项 -1 表示该布局没有清醒字段 */
+    private val SLEEP_LAYOUTS = arrayOf(
+        intArrayOf(4, 6, 10),
+        intArrayOf(2, 4, 8),
+        intArrayOf(0, 2, 6),
+        intArrayOf(6, 8, 12),
+        intArrayOf(4, 6, -1),
+        intArrayOf(2, 4, -1),
+    )
+
     data class Frame(
         val group: Int,
         val type: Int,
@@ -313,21 +323,74 @@ object HryFineProtocol {
             )
         }
         0x09 -> {
-            var light = u16(p, 4)
-            var deep = u16(p, 6)
-            // 部分固件把「深睡」写成 16 位但高字节残留，导致总量超过一天：退回按低字节读取
-            if ((light ?: 0) + (deep ?: 0) > 1440) {
-                light = p.getOrNull(5)?.toInt()?.and(0xFF)
-                deep = p.getOrNull(7)?.toInt()?.and(0xFF)
-            }
+            val s = sleepFrom(p) ?: return base
             base.copy(
-                sleepLightMin = light,
-                sleepDeepMin = deep,
-                sleepAwakeMin = u16(p, 10),
+                sleepLightMin = s[0],
+                sleepDeepMin = s[1],
+                sleepAwakeMin = if (s[2] >= 0) s[2] else base.sleepAwakeMin,
             )
         }
-        0x0E -> base.copy(spo2 = p.getOrNull(11)?.toInt()?.and(0xFF))
+        // 0x1C 是血氧测量指令号，个别固件也用同一个子命令回传结果
+        0x0E, 0x1C -> {
+            val v = spo2From(p) ?: return base
+            base.copy(spo2 = v)
+        }
         else -> base
+    }
+
+    /**
+     * 0x09 睡眠：固件的日期前缀长度与字段宽度不一致，按候选组合逐个尝试。
+     * 只接受「浅睡 + 深睡」落在 10~1440 分钟、且加上清醒后仍不超过一天的结果，
+     * 避免错位读出的几十万分钟或无意义的 1 分钟。
+     */
+    private fun sleepFrom(p: ByteArray): IntArray? {
+        val readers: List<(Int) -> Int?> = listOf(
+            { at -> u16(p, at, little = true) },
+            { at -> u16(p, at, little = false) },
+            { at -> u8(p, at) },
+        )
+        for (read in readers) {
+            for (l in SLEEP_LAYOUTS) {
+                val light = read(l[0])
+                val deep = read(l[1])
+                if (light == null || deep == null) continue
+                val awake = if (l[2] >= 0) read(l[2]) else null
+                if (l[2] >= 0 && awake == null) continue
+                if (sleepPlausible(light, deep, awake)) return intArrayOf(light, deep, awake ?: -1)
+            }
+        }
+        return null
+    }
+
+    private fun sleepPlausible(light: Int, deep: Int, awake: Int?): Boolean {
+        if (light > 1440 || deep > 1440) return false
+        // 0xFF 是「无数据」填充：单字节读法下会变成 255，必须按哨兵值排除
+        if (light == 0xFF && deep == 0xFF) return false
+        if (awake == 0xFF) return false
+        val total = light + deep
+        if (total !in 10..1440) return false
+        if (awake != null && (awake > 1440 || total + awake > 1440)) return false
+        return true
+    }
+
+    /**
+     * 0x0E / 0x1C 血氧：与 0x04 心率同构的「条数 + 8 字节记录」优先，
+     * 再退到单值布局。只接受 50~100 的生理区间，0/255 这类无数据填充直接丢弃。
+     */
+    private fun spo2From(p: ByteArray): Int? {
+        val count = p.getOrNull(3)?.toInt()?.and(0xFF) ?: 0
+        if (count in 1..12) {
+            val last = (0 until count).lastOrNull { i -> 4 + i * 8 + 7 < p.size }
+            if (last != null) {
+                val v = p[4 + last * 8 + 7].toInt() and 0xFF
+                if (v in 50..100) return v
+            }
+        }
+        for (at in intArrayOf(p.size - 1, 11, 3, 4, 5)) {
+            val v = u8(p, at) ?: continue
+            if (v in 50..100) return v
+        }
+        return null
     }
 
     /**
@@ -451,6 +514,11 @@ object HryFineProtocol {
     private fun u16(b: ByteArray, at: Int): Int? {
         if (b.size < at + 2) return null
         return ((b[at].toInt() and 0xFF) shl 8) or (b[at + 1].toInt() and 0xFF)
+    }
+
+    private fun u8(b: ByteArray, at: Int): Int? {
+        if (at < 0 || b.size <= at) return null
+        return b[at].toInt() and 0xFF
     }
 
     private fun u16(b: ByteArray, at: Int, little: Boolean): Int? {

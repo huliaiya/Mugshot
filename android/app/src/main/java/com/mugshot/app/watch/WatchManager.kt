@@ -949,6 +949,9 @@ object WatchManager {
             0x05, // 血压
             0x09, // 睡眠
             0x0E, // 血氧
+            // 睡眠与血氧回包最先被逐时数据流挤掉，末尾补请求一次，避免整轮同步拿不到
+            0x09,
+            0x0E,
         )
         subs.forEachIndexed { i, sub ->
             main.postDelayed({
