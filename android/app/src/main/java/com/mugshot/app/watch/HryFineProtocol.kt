@@ -45,6 +45,7 @@ object HryFineProtocol {
     const val SUB_SETTINGS_REPLY = 0x09
     const val SUB_HEALTH_SYNC = 0x01
     const val SUB_HEALTH_HOURLY = 0x02
+    const val SUB_HEALTH_REALTIME_STEP = 0x06
     const val SUB_HEALTH_END = 0x08
     const val SUB_HEALTH_TODAY = 0x0A
     const val SUB_HEALTH_TODAY_TOTAL = 0x0C
@@ -278,7 +279,7 @@ object HryFineProtocol {
             // 当天整包：每轮同步都会请求，但头部日期字段长度因固件而异，
             // 按候选偏移逐个尝试，命中当天总计或逐时汇总即采用。
             // 之前没有这个分支，整包回包被直接丢弃，表现为步数只在首次连接时更新。
-            val day = todayAt(p, little = true) ?: todayAt(p, little = false) ?: return base
+            val day = todayAny(p) ?: return base
             base.copy(
                 steps = base.steps ?: day.steps,
                 distanceM = base.distanceM ?: day.distance,
@@ -293,12 +294,12 @@ object HryFineProtocol {
             base.copy(steps = t[0], distanceM = t[1], kcal = t[2])
         }
         0x02 -> {
-            // 24 组 × 8 字节：步数 u16、距离 u16（米）、卡路里 u32
-            val le = hourlyAt(p, little = true)
+            // 24 组 × 8 字节：步数 u16、距离 u16（米）、卡路里 u32，官方向序为大端
             val be = hourlyAt(p, little = false)
+            val le = hourlyAt(p, little = true)
             val h = when {
-                le != null -> le
                 be != null -> be
+                le != null -> le
                 else -> return base
             }
             // 逐时汇总只在缺当天总计（0x0C）时兜底，避免把更粗的统计覆盖到权威值上
@@ -310,13 +311,23 @@ object HryFineProtocol {
             )
         }
         0x04 -> {
-            val count = p.getOrNull(3)?.toInt() ?: 0
-            val last = (0 until count).mapNotNull { i -> p.getOrNull(4 + i * 8 + 7)?.toInt()?.and(0xFF) }.lastOrNull()
+            // 官方布局：[0..1] 日期、[3] 条数，之后每条 8 字节 {时间戳 u32, 类型, ?, ?, 心率}
+            // 官方只保留 40~160 的样本，超出说明该条未测出，跳过取最后一条有效值
+            val count = p.getOrNull(3)?.toInt()?.and(0xFF) ?: 0
+            val last = (0 until count)
+                .mapNotNull { i -> p.getOrNull(4 + i * 8 + 7)?.toInt()?.and(0xFF) }
+                .lastOrNull { it in 40..160 }
             base.copy(heartRate = last ?: base.heartRate)
         }
         0x05 -> {
-            val count = p.getOrNull(3)?.toInt() ?: 0
-            val lastIdx = (0 until count).lastOrNull { i -> 4 + i * 8 + 7 < p.size }
+            // 官方布局：[3] 条数，之后每条 8 字节 {时间戳 u32, ?, ?, 收缩压, 舒张压}
+            // 官方校验区间 50~300 / 30~200，越界视为未测出
+            val count = p.getOrNull(3)?.toInt()?.and(0xFF) ?: 0
+            val lastIdx = (0 until count).lastOrNull { i ->
+                4 + i * 8 + 7 < p.size &&
+                    (p[4 + i * 8 + 6].toInt() and 0xFF) in 50..300 &&
+                    (p[4 + i * 8 + 7].toInt() and 0xFF) in 30..200
+            }
             if (lastIdx == null) base else base.copy(
                 bpSys = p[4 + lastIdx * 8 + 6].toInt() and 0xFF,
                 bpDia = p[4 + lastIdx * 8 + 7].toInt() and 0xFF,
@@ -339,14 +350,15 @@ object HryFineProtocol {
     }
 
     /**
-     * 0x09 睡眠：固件的日期前缀长度与字段宽度不一致，按候选组合逐个尝试。
-     * 只接受「浅睡 + 深睡」落在 10~1440 分钟、且加上清醒后仍不超过一天的结果，
-     * 避免错位读出的几十万分钟或无意义的 1 分钟。
+     * 0x09 睡眠：官方布局为 [0..1] 日期、[2..3] 入睡分钟、[4..5] 浅睡、[6..7] 深睡、
+     * [8..9] 起床分钟、[10..11] 清醒，全部大端 16 位。
+     * 仍保留小端与单字节读法兜底，但大端优先：用相反字节序读大端数据会得到
+     * 「高位字节乘以 256」的巨值，先试大端可避免误命中。
      */
     private fun sleepFrom(p: ByteArray): IntArray? {
         val readers: List<(Int) -> Int?> = listOf(
-            { at -> u16(p, at, little = true) },
             { at -> u16(p, at, little = false) },
+            { at -> u16(p, at, little = true) },
             { at -> u8(p, at) },
         )
         for (read in readers) {
@@ -363,21 +375,24 @@ object HryFineProtocol {
     }
 
     private fun sleepPlausible(light: Int, deep: Int, awake: Int?): Boolean {
-        if (light > 1440 || deep > 1440) return false
+        // 官方解析器把 >1439 的字段直接清零，等于「该字段无效」，不能拿来相加上限
+        if (light >= 1440 || deep >= 1440) return false
         // 0xFF 是「无数据」填充：单字节读法下会变成 255，必须按哨兵值排除
         if (light == 0xFF && deep == 0xFF) return false
-        if (awake == 0xFF) return false
+        if (awake != null && awake >= 1440) return false
         val total = light + deep
         if (total !in 10..1440) return false
-        if (awake != null && (awake > 1440 || total + awake > 1440)) return false
+        if (awake != null && total + awake > 1440) return false
         return true
     }
 
     /**
-     * 0x0E / 0x1C 血氧：与 0x04 心率同构的「条数 + 8 字节记录」优先，
-     * 再退到单值布局。只接受 50~100 的生理区间，0/255 这类无数据填充直接丢弃。
+     * 0x0E / 0x1C 血氧。官方布局为 [0..1] 日期、[4..7] 时间戳、[11] 血氧百分比，
+     * 因此优先读 [11]；「条数 + 8 字节记录」与尾部单值扫描作为兜底。
+     * 只接受 50~100 的生理区间，0/255 这类无数据填充直接丢弃。
      */
     private fun spo2From(p: ByteArray): Int? {
+        u8(p, 11)?.let { if (it in 50..100) return it }
         val count = p.getOrNull(3)?.toInt()?.and(0xFF) ?: 0
         if (count in 1..12) {
             val last = (0 until count).lastOrNull { i -> 4 + i * 8 + 7 < p.size }
@@ -386,7 +401,7 @@ object HryFineProtocol {
                 if (v in 50..100) return v
             }
         }
-        for (at in intArrayOf(p.size - 1, 11, 3, 4, 5)) {
+        for (at in intArrayOf(p.size - 1, 3, 4, 5)) {
             val v = u8(p, at) ?: continue
             if (v in 50..100) return v
         }
@@ -400,9 +415,13 @@ object HryFineProtocol {
      */
     private fun totalsFrom(p: ByteArray): IntArray? {
         val candidates = ArrayList<IntArray>()
-        for (width in intArrayOf(4, 2)) {
+        // 官方 0x0C 固定 12 字节（3 × u32），此时只认 u32；u16 三元组只用于更短的旧固件包，
+        // 否则 8 字节的逐时桶会被当作三元组按相反字节序读出「比例自洽但完全错误」的步数
+        val widths = if (p.size >= 12) intArrayOf(4) else intArrayOf(4, 2)
+        for (width in widths) {
             for (off in intArrayOf(0, 2, 4, 6)) {
-                for (little in booleanArrayOf(true, false)) {
+                // 官方 0x0C 为大端：[0..3] 步、[4..7] 距离、[8..11] 卡路里，先试大端
+                for (little in booleanArrayOf(false, true)) {
                     val t = totalsAt(p, little, off, width) ?: continue
                     if (plausible(t[0], t[1], t[2])) return t
                     candidates += t
@@ -456,24 +475,27 @@ object HryFineProtocol {
 
     /**
      * 0x0A（当天整包）解析：整包可能是「日期前缀 + 逐时桶」，
-     * 也可能是「日期前缀 + 步/距/卡总计」。先按逐时整包识别（长度能被 8 整除且桶数够多），
-     * 再退回总计三元组，按候选偏移逐个尝试，命中即采用；都不成立返回 null。
+     * 也可能是「日期前缀 + 步/距/卡总计」。
+     * 逐时桶的自洽性远强于总计三元组，因此两种字节序都先按逐时尝试，
+     * 都失败才退回总计，避免把逐时桶按错误字节序当成三元组读出假步数。
      */
-    private fun todayAt(p: ByteArray, little: Boolean): Day? {
-        // 桶数太少（<6）时长度整除关系同样成立，会把总计段误读成小时桶，宁可走总计分支
-        for (off in intArrayOf(2, 0, 4, 6)) {
-            if (p.size <= off || (p.size - off) % 8 != 0) continue
-            val buckets = (p.size - off) / 8
-            if (buckets < 6 || buckets > 24) continue
-            hourlyAt(p, little)?.let { return Day(it.steps, it.distance, it.kcal, it.steps) }
+    private fun todayAny(p: ByteArray): Day? {
+        for (little in booleanArrayOf(false, true)) {
+            // 桶数太少（<6）时长度整除关系同样成立，会把总计段误读成小时桶，宁可走总计分支
+            for (off in intArrayOf(2, 0, 4, 6)) {
+                if (p.size <= off || (p.size - off) % 8 != 0) continue
+                val buckets = (p.size - off) / 8
+                if (buckets < 6 || buckets > 24) continue
+                hourlyAt(p, little)?.let { return Day(it.steps, it.distance, it.kcal, it.steps) }
+            }
         }
         val t = totalsFrom(p) ?: return null
         return Day(t[0], t[1], t[2], null)
     }
 
     /**
-     * 0x02 的每小时 8 字节桶（步 u16、距 u16 米、卡 u32）。
-     * 文档给的是小端；0xFFFF 表示该小时无数据，单小时 >20000 步视为错位脏值整桶丢弃。
+     * 0x02 的每小时 8 字节桶（步 u16、距 u16 米、卡 u32，官方向序为大端）。
+     * 0xFFFF 表示该小时无数据，单小时 >20000 步视为错位脏值整桶丢弃。
      * 部分固件只回「到当前小时为止」的部分桶，因此按剩余长度算桶数，不强制 24 个。
      * 日期前缀 2 字节个别固件不带，按长度能否被 8 整除自动识别偏移。
      */

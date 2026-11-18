@@ -200,12 +200,21 @@ class HryFineProtocolTest {
 
     @Test
     fun spo2DecodesCountPrefixedRecords() {
-        // 与心率同构：条数在 p[3]，其后每条 8 字节，数值在末字节
+        // 与心率同构：条数在 p[3]，其后每条 8 字节，数值在末字节。
+        // 首条为空（低于生理区间），应跳到第二条有效值
         val p = ByteArray(20)
         p[3] = 2
-        p[4 + 7] = 96
+        p[4 + 7] = 0
         p[4 + 8 + 7] = 97
         assertEquals(97, HryFineProtocol.decodeHealth(0x0E, p).spo2)
+    }
+
+    @Test
+    fun spo2UsesOfficialSingleReadingLayout() {
+        // 官方布局：[0..1] 日期、[4..7] 时间戳、[11] 血氧值
+        val p = ByteArray(12)
+        p[11] = 95
+        assertEquals(95, HryFineProtocol.decodeHealth(0x0E, p).spo2)
     }
 
     @Test
@@ -489,5 +498,89 @@ class HryFineProtocolTest {
         assertEquals(294, h.distanceM)
         assertEquals(17, h.kcal)
         assertEquals(420, h.hourlySteps)
+    }
+
+    @Test
+    fun realtimeStepSubscribeFrameMatchesOfficial() {
+        // 官方打开实时步数：DF 00 06 F3 05 01 06 00 01 01
+        val frame = HryFineProtocol.encode(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_REALTIME_STEP, byteArrayOf(0x01))
+        assertArrayEquals(
+            byteArrayOf(0xDF.toByte(), 0x00, 0x06, 0xF3.toByte(), 0x05, 0x01, 0x06, 0x00, 0x01, 0x01),
+            frame,
+        )
+    }
+
+    @Test
+    fun sleepUsesOfficialBigEndianLayout() {
+        // 官方布局：[2..3] 入睡、[4..5] 浅睡、[6..7] 深睡、[8..9] 起床、[10..11] 清醒（大端）
+        val p = ByteArray(12)
+        p[2] = 0x05; p[3] = 0xA0.toByte() // 入睡 1440 分钟
+        p[4] = 0x01; p[5] = 0x7C.toByte() // 浅睡 380
+        p[6] = 0x00; p[7] = 0x5F             // 深睡 95
+        p[8] = 0x08; p[9] = 0x98.toByte() // 起床 2200 分钟
+        p[10] = 0x00; p[11] = 0x14           // 清醒 20
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertEquals(380, s.sleepLightMin)
+        assertEquals(95, s.sleepDeepMin)
+        assertEquals(20, s.sleepAwakeMin)
+    }
+
+    @Test
+    fun dayTotalsDecodeBigEndian() {
+        // 官方 0x0C：[0..3] 步、[4..7] 距、[8..11] 卡，全部大端
+        val p = ByteArray(12).apply {
+            this[2] = 0x16; this[3] = 0xBC.toByte() // 5820
+            this[6] = 0x0F; this[7] = 0x14          // 3860
+            this[11] = 0xD7.toByte()                // 215
+        }
+        val h = HryFineProtocol.decodeHealth(0x0C, p)
+        assertEquals(5820, h.steps)
+        assertEquals(3860, h.distanceM)
+        assertEquals(215, h.kcal)
+    }
+
+    @Test
+    fun hourlyBucketsDecodeBigEndian() {
+        // 官方 0x02：2 字节日期 + 每小时 {步 BE16, 距 BE16, 卡 BE32}
+        val p = ByteArray(2 + 24 * 8)
+        fun put(at: Int, steps: Int, dist: Int, kcal: Int) {
+            p[at] = ((steps shr 8) and 0xFF).toByte()
+            p[at + 1] = (steps and 0xFF).toByte()
+            p[at + 2] = ((dist shr 8) and 0xFF).toByte()
+            p[at + 3] = (dist and 0xFF).toByte()
+            p[at + 4] = ((kcal shr 24) and 0xFF).toByte()
+            p[at + 5] = ((kcal shr 16) and 0xFF).toByte()
+            p[at + 6] = ((kcal shr 8) and 0xFF).toByte()
+            p[at + 7] = (kcal and 0xFF).toByte()
+        }
+        put(2, 120, 84, 5)
+        put(2 + 8, 300, 210, 12)
+        p[2 + 16] = 0xFF.toByte()
+        p[2 + 17] = 0xFF.toByte()
+        val h = HryFineProtocol.decodeHealth(0x02, p)
+        assertEquals(420, h.steps)
+        assertEquals(294, h.distanceM)
+        assertEquals(17, h.kcal)
+    }
+
+    @Test
+    fun heartRateSkipsOutOfRangeSample() {
+        // 最后一条是未测出的 0，应回退到上一条有效值
+        val p = ByteArray(4 + 2 * 8)
+        p[3] = 2
+        p[4 + 7] = 72
+        p[4 + 8 + 7] = 0
+        assertEquals(72, HryFineProtocol.decodeHealth(0x04, p).heartRate)
+    }
+
+    @Test
+    fun bloodPressureSkipsOutOfRangeSample() {
+        val p = ByteArray(4 + 2 * 8)
+        p[3] = 2
+        p[4 + 6] = 118; p[4 + 7] = 76
+        p[4 + 8 + 6] = 0; p[4 + 8 + 7] = 0
+        val h = HryFineProtocol.decodeHealth(0x05, p)
+        assertEquals(118, h.bpSys)
+        assertEquals(76, h.bpDia)
     }
 }

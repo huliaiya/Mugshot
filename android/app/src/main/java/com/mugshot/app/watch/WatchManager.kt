@@ -939,6 +939,9 @@ object WatchManager {
         // 背景：整天总计（0x0C）并非每次都会回包，若不清空，上一轮的旧步数会一直
         // 挡住这一轮按小时汇总（0x02）算出的新值，表现为步数停在首次连接时的数字。
         health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
+        // 0x06 实时步数开关（payload 0x01）：官方在同步前打开，手表才会在步数变化时主动推送，
+        // 否则只能等下一次轮询。失败无害，手表会忽略不支持的子命令
+        writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_REALTIME_STEP, byteArrayOf(0x01))
         // 0x01 同步开始；0x0A 让手表把当天数据整包推过来
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
         val subs = listOf(
