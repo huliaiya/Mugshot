@@ -889,6 +889,8 @@ object WatchManager {
     fun measureSpo2() = measure(HryFineProtocol.SUB_MEASURE_SPO2)
 
     private var pendingMeasureLabel: String? = null
+    /** 完整同步的占用截止时间：期间定时刷新让路，避免插进去的结束包截断数据流 */
+    @Volatile private var syncBusyUntil = 0L
     private var pendingMeasureDeadline = 0L
 
     private fun measure(sub: Int) {
@@ -961,6 +963,7 @@ object WatchManager {
         // 结束包给足 10 秒：手表的整包数据流顺序是 逐时步数 → 心率/血压 → 睡眠 → 当天总计，
         // 4 秒就发 0x08 会把排在后面的睡眠截断，表现为步数正常但睡眠一直拿不到
         val endAt = 10_000L
+        syncBusyUntil = System.currentTimeMillis() + endAt + 5_000L
         // 0x08 同步结束：不回这个包，手表会停在同步态，后续同步请求可能被忽略
         main.postDelayed({
             if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
@@ -1161,6 +1164,11 @@ object WatchManager {
             }
             // 测量进行中先让路，避免请求交错导致回包被当成测量结果
             if (pendingMeasureLabel != null) {
+                main.postDelayed(this, 15_000L)
+                return
+            }
+            // 完整同步进行中先让路：它自己的结束包要等 10 秒，这里插进去会把睡眠截断
+            if (System.currentTimeMillis() < syncBusyUntil) {
                 main.postDelayed(this, 15_000L)
                 return
             }
