@@ -58,16 +58,6 @@ object HryFineProtocol {
     private const val HEADER_DATA = 0xDF
     private const val HEADER_ACK = 0xFD
 
-    /** 睡眠三元组（浅睡、深睡、清醒）的候选偏移，最后一项 -1 表示该布局没有清醒字段 */
-    private val SLEEP_LAYOUTS = arrayOf(
-        intArrayOf(4, 6, 10),
-        intArrayOf(2, 4, 8),
-        intArrayOf(0, 2, 6),
-        intArrayOf(6, 8, 12),
-        intArrayOf(4, 6, -1),
-        intArrayOf(2, 4, -1),
-    )
-
     data class Frame(
         val group: Int,
         val type: Int,
@@ -248,7 +238,10 @@ object HryFineProtocol {
     fun parseSettings(payload: ByteArray): Map<Int, ByteArray> {
         val lengths = mapOf(0x01 to 4, 0x02 to 4, 0x03 to 8, 0x05 to 5, 0x06 to 4, 0x07 to 5, 0x08 to 8, 0x09 to 5, 0x0A to 7)
         val out = linkedMapOf<Int, ByteArray>()
-        var i = 0
+        // 官方设置导出的 TLV 从 payload 偏移 5 开始（帧头 9 字节之外的固定前缀），
+        // 个别固件不带这个前缀，因此两处都试：偏移 5 处是已知 tag 就优先用
+        val start = if (payload.size > 5 && lengths.containsKey(payload[5].toInt() and 0xFF)) 5 else 0
+        var i = start
         while (i < payload.size) {
             val id = payload[i].toInt() and 0xFF
             val len = lengths[id] ?: break
@@ -258,6 +251,27 @@ object HryFineProtocol {
         }
         return out
     }
+
+    /** 睡眠监测设置（TLV tag 5）：开关 + 入睡/起床分钟数，全部大端 */
+    data class SleepWindow(val enabled: Boolean, val startMin: Int, val endMin: Int) {
+        fun describe(): String = "开关=" + (if (enabled) 1 else 0) +
+            " 窗口=%02d:%02d-%02d:%02d".format(startMin / 60, startMin % 60, endMin / 60, endMin % 60)
+    }
+
+    fun parseSleepWindow(tag: ByteArray?): SleepWindow? {
+        if (tag == null || tag.size < 5) return null
+        val start = ((tag[1].toInt() and 0xFF) shl 8) or (tag[2].toInt() and 0xFF)
+        val end = ((tag[3].toInt() and 0xFF) shl 8) or (tag[4].toInt() and 0xFF)
+        if (start >= 1440 || end >= 1440) return null
+        return SleepWindow((tag[0].toInt() and 0xFF) != 0, start, end)
+    }
+
+    /** 睡眠监测设置帧：[开关, 开始高, 开始低, 结束高, 结束低] */
+    fun encodeSleepWindow(enabled: Boolean, startMin: Int, endMin: Int): ByteArray = byteArrayOf(
+        if (enabled) 0x01 else 0x00,
+        ((startMin shr 8) and 0xFF).toByte(), (startMin and 0xFF).toByte(),
+        ((endMin shr 8) and 0xFF).toByte(), (endMin and 0xFF).toByte(),
+    )
 
     data class Health(
         val steps: Int? = null,
@@ -274,7 +288,7 @@ object HryFineProtocol {
     )
 
     /** 健康帧（group 0x05）各子命令的字段布局 */
-    fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health()): Health = when (sub) {
+    fun decodeHealth(sub: Int, p: ByteArray, base: Health = Health(), minDateKey: Int? = null): Health = when (sub) {
         0x0A -> {
             // 当天整包：每轮同步都会请求，但头部日期字段长度因固件而异，
             // 按候选偏移逐个尝试，命中当天总计或逐时汇总即采用。
@@ -334,6 +348,9 @@ object HryFineProtocol {
             )
         }
         0x09 -> {
+            // 历史流会带前几天甚至更早的记录，日期早于昨天的直接忽略，避免把旧数据当今天
+            val key = dateKey(p)
+            if (key != null && minDateKey != null && key < minDateKey) return base
             val s = sleepFrom(p) ?: return base
             base.copy(
                 sleepLightMin = s[0],
@@ -350,39 +367,66 @@ object HryFineProtocol {
     }
 
     /**
-     * 睡眠解析：官方布局为 [0..1] 日期、[2..3] 入睡、[4..5] 浅睡、[6..7] 深睡、
-     * [8..9] 起床、[10..11] 清醒（大端 16 位），仍保留小端与单字节兜底。
-     * 只接受「浅睡 + 深睡」落在 10~960 分钟的结果；清醒字段异常时丢清醒、
-     * 保留睡眠时长，避免一个坏字段把整包睡眠一起丢掉。
-     * 最后再兜底一次：手表只回入睡/起床时间时，用两者差值当总睡眠。
+     * 睡眠解析，严格按官方 SleepUtils.receiveTotalSleepData 的布局：
+     * payload [0..1] 日期（压缩位域）、[2..3] 入睡、[4..5] 浅睡、[6..7] 深睡、
+     * [8..9] 起床、[10..11] 清醒，全部大端 16 位。
+     *
+     * 三重校验，避免「读错位却给出一个看起来合理的数字」：
+     *  1. 浅睡 + 深睡必须落在 10~960 分钟；
+     *  2. 任一段 >1439 分钟按官方的「越界即无效」处理（0xFFFF 是无数据填充）；
+     *  3. 入睡到起床跨度可用时，三段之和不能超过跨度（不可能比在床时间还长），
+     *     也不能少到一半以下；偏移错一个字节几乎必然通不过这一条。
+     * 三段全 0（手表只回起止时间）时退回跨度差值，其余情况一律丢弃、保留旧值。
      */
     private fun sleepFrom(p: ByteArray): IntArray? {
-        val u16Readers: List<(Int) -> Int?> = listOf(
-            { at -> u16(p, at, little = false) },
-            { at -> u16(p, at, little = true) },
-        )
-        for (read in u16Readers + listOf<(Int) -> Int?> { at -> u8(p, at) }) {
-            for (l in SLEEP_LAYOUTS) {
-                val light = read(l[0])
-                val deep = read(l[1])
-                if (light == null || deep == null) continue
-                if (!sleepPlausible(light, deep)) continue
-                val awake = if (l[2] >= 0) read(l[2]) else null
-                val total = light + deep
-                val keepAwake = awake != null && awake < 1440 && total + awake <= 1440
-                return intArrayOf(light, deep, if (keepAwake) awake!! else -1)
-            }
+        if (p.size < 6) return null
+        var light = u16(p, 4) ?: return null
+        var deep = u16(p, 6) ?: return null
+        var awake = if (p.size >= 12) u16(p, 10) else null
+        if (light >= 1440 || deep >= 1440) {
+            // 官方：浅睡或深睡越界就整份作废（这里落到窗口兜底，至少给出总时长）
+            light = 0
+            deep = 0
+            awake = null
+        } else if (awake != null && awake >= 1440) {
+            // 只有清醒字段坏掉时单独丢弃，浅睡深睡仍然可信
+            awake = null
         }
-        for (read in u16Readers) {
-            val start = read(2) ?: continue
-            val end = read(8) ?: continue
-            if (start >= 1440 || end >= 1440 || start == end) continue
-            // 睡眠窗口跨零点：23:00 → 08:00 时 end 小于 start，按加一天处理
-            val span = if (end > start) end - start else 1440 - start + end
-            // 上限 16 小时，避免把错位读出的窗口当成整天睡眠
-            if (span in 10..960) return intArrayOf(span, 0, -1)
+        val span = spanMinutes(u16(p, 2), u16(p, 8))
+        if (light + deep == 0) return span?.let { intArrayOf(it, 0, -1) }
+        if (!sleepPlausible(light, deep)) return null
+        if (span != null) {
+            // 三段时长不可能长于在床时间；反过来若一半以上对不上，说明字段读错了位置。
+            // 中间的空档是真实存在的（中途脱表、未计入的时间），因此不用严格相等来判定
+            val stages = light + deep + (awake ?: 0)
+            if (stages > span + 15) return null
+            if (stages < span / 2) return null
         }
-        return null
+        return intArrayOf(light, deep, awake ?: -1)
+    }
+
+    /** 入睡 → 起床的分钟跨度；跨零点自动加一天，超出 10~960 分钟视为不可用 */
+    private fun spanMinutes(start: Int?, end: Int?): Int? {
+        if (start == null || end == null) return null
+        if (start >= 1440 || end >= 1440 || start == end) return null
+        val span = if (end > start) end - start else 1440 - start + end
+        return if (span in 10..960) span else null
+    }
+
+    /**
+     * 官方压缩日期（DevBaseDataUtils.getDateBean）：
+     * year = (i & 0x7F) >> 1，month = ((i & 1) << 3) | ((j & 0xE0) >> 5)，day = j & 0x1F。
+     * 返回 yyyyMMdd；月/日越界说明该包不带日期，返回 null。
+     */
+    fun dateKey(p: ByteArray): Int? {
+        if (p.size < 2) return null
+        val i = p[0].toInt() and 0xFF
+        val j = p[1].toInt() and 0xFF
+        val year = 2000 + ((i and 0x7F) shr 1)
+        val month = ((i and 0x01) shl 3) or ((j and 0xE0) shr 5)
+        val day = j and 0x1F
+        if (month !in 1..12 || day !in 1..31) return null
+        return year * 10000 + month * 100 + day
     }
 
     private fun sleepPlausible(light: Int, deep: Int): Boolean {

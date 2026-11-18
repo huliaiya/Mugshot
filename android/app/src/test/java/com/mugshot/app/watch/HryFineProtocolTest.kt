@@ -158,28 +158,6 @@ class HryFineProtocolTest {
     }
 
     @Test
-    fun sleepDecodesLittleEndianLowBytes() {
-        // 小端写法的 440 / 90：B8 01 / 5A 00
-        val p = ByteArray(12)
-        p[4] = 0xB8.toByte(); p[5] = 0x01
-        p[6] = 0x5A; p[7] = 0x00
-        val s = HryFineProtocol.decodeHealth(0x09, p)
-        assertEquals(440, s.sleepLightMin)
-        assertEquals(90, s.sleepDeepMin)
-    }
-
-    @Test
-    fun sleepFallsBackToSingleByteWhenHighByteIsGarbage() {
-        // 高字节残留导致 16 位读出天文数字时，退回单字节读取
-        val p = ByteArray(12)
-        p[4] = 0xB8.toByte(); p[5] = 0xFF.toByte()
-        p[6] = 0x5A; p[7] = 0xFF.toByte()
-        val s = HryFineProtocol.decodeHealth(0x09, p)
-        assertEquals(184, s.sleepLightMin)
-        assertEquals(90, s.sleepDeepMin)
-    }
-
-    @Test
     fun sleepRejectsPlaceholderFill() {
         val p = ByteArray(12) { 0xFF.toByte() }
         val base = HryFineProtocol.Health(sleepLightMin = 300, sleepDeepMin = 60)
@@ -652,7 +630,7 @@ class HryFineProtocolTest {
         p[2] = 0x05; p[3] = 0x64.toByte() // 1380
         p[8] = 0x01; p[9] = 0xE0.toByte() // 480
         val s = HryFineProtocol.decodeHealth(0x09, p)
-        assertEquals(540, s.sleepLightMin)
+        assertEquals(600, s.sleepLightMin)
         assertEquals(0, s.sleepDeepMin)
     }
 
@@ -663,4 +641,73 @@ class HryFineProtocolTest {
         assertEquals(300, s.sleepLightMin)
         assertEquals(60, s.sleepDeepMin)
     }
+    @Test
+    fun sleepRejectsInconsistentStages() {
+        // 浅睡 1320 明显是把「入睡分钟」读到了浅睡字段：三段之和必须接近入睡-起床跨度
+        val p = ByteArray(12)
+        p[2] = 0x05; p[3] = 0x28.toByte() // 入睡 1320
+        p[4] = 0x05; p[5] = 0x28.toByte() // 浅睡 1320（错位）
+        p[6] = 0x00; p[7] = 0x1E             // 深睡 30
+        p[8] = 0x01; p[9] = 0xE0.toByte() // 起床 480
+        val s = HryFineProtocol.decodeHealth(0x09, p)
+        assertNull(s.sleepLightMin)
+        assertNull(s.sleepDeepMin)
+    }
+
+    @Test
+    fun sleepRejectsRecordOlderThanYesterday() {
+        val p = sleepRecord(dateHi = 0x35, dateLo = 0x71, light = 380, deep = 95, awake = 20)
+        val s = HryFineProtocol.decodeHealth(0x09, p, HryFineProtocol.Health(), 20261118)
+        assertNull(s.sleepLightMin)
+    }
+
+    @Test
+    fun sleepAcceptsYesterdayRecord() {
+        // 昨夜的记录可能按入睡当天打日期，昨天及以后都接受
+        val p = sleepRecord(dateHi = 0x35, dateLo = 0x71, light = 380, deep = 95, awake = 20)
+        val s = HryFineProtocol.decodeHealth(0x09, p, HryFineProtocol.Health(), 20261117)
+        assertEquals(380, s.sleepLightMin)
+        assertEquals(95, s.sleepDeepMin)
+    }
+
+    @Test
+    fun dateKeyDecodesCompressedDate() {
+        val p = byteArrayOf(0x35, 0x72) // 2026-11-18
+        assertEquals(20261118, HryFineProtocol.dateKey(p))
+        assertNull(HryFineProtocol.dateKey(ByteArray(2)))
+    }
+
+    @Test
+    fun parseSettingsSkipsFiveBytePrefix() {
+        val payload = ByteArray(5) { 0x00 } +
+            byteArrayOf(0x05, 0x01, 0x05, 0x28, 0x01, 0xE0.toByte()) +
+            byteArrayOf(0x03, 1, 2, 3, 4, 5, 6, 7, 8)
+        val m = HryFineProtocol.parseSettings(payload)
+        assertEquals(5, m[0x05]?.size)
+        assertEquals(8, m[0x03]?.size)
+    }
+
+    @Test
+    fun sleepWindowEncodesOfficialFrame() {
+        val w = HryFineProtocol.parseSleepWindow(
+            HryFineProtocol.encodeSleepWindow(true, 22 * 60, 8 * 60)
+        )
+        assertEquals(true, w?.enabled)
+        assertEquals(1320, w?.startMin)
+        assertEquals(480, w?.endMin)
+        assertEquals("开关=1 窗口=22:00-08:00", w?.describe())
+        assertNull(HryFineProtocol.parseSleepWindow(null))
+    }
+
+    private fun sleepRecord(dateHi: Int, dateLo: Int, light: Int, deep: Int, awake: Int): ByteArray {
+        val p = ByteArray(12)
+        p[0] = dateHi.toByte(); p[1] = dateLo.toByte()
+        p[2] = 0x05; p[3] = 0x28.toByte() // 入睡 22:00
+        p[4] = (light shr 8).toByte(); p[5] = (light and 0xFF).toByte()
+        p[6] = (deep shr 8).toByte(); p[7] = (deep and 0xFF).toByte()
+        p[8] = 0x01; p[9] = 0xE0.toByte() // 起床 08:00
+        p[10] = (awake shr 8).toByte(); p[11] = (awake and 0xFF).toByte()
+        return p
+    }
+
 }

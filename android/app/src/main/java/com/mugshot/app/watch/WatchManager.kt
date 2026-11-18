@@ -891,6 +891,12 @@ object WatchManager {
     private var pendingMeasureLabel: String? = null
     /** 完整同步的占用截止时间：期间定时刷新让路，避免插进去的结束包截断数据流 */
     @Volatile private var syncBusyUntil = 0L
+    /** 每轮同步的令牌，旧轮次的延时任务靠它自动作废 */
+    private var syncToken = 0
+    private var historyRequested = false
+    private var syncFinished = false
+    private var syncForceReport = true
+    private var syncStepsBefore: Int? = null
     private var pendingMeasureDeadline = 0L
 
     private fun measure(sub: Int) {
@@ -934,58 +940,80 @@ object WatchManager {
         publish()
     }
 
-    private fun syncHealth() {
+    /**
+     * 完整同步，严格照官方的握手顺序：
+     *   0x05/0x06（打开实时步数）→ 等手表 ACK cmd=6 → 0x05/0x01（请给全部历史）
+     *   → 手表逐条推送（每条都要 ACK）→ 0x05/0x08（历史结束）
+     * 官方是收到 ACK 才发 0x05/0x01 的，直接连发会让手表把 0x01 当成重复请求丢掉，
+     * 表现为「有时候能同步到、有时候什么也没有」。
+     */
+    private fun syncHealth(forceReport: Boolean = true) {
         if (snap.state != STATE_CONNECTED) return
         resetIfNewDay()
         // 每轮同步前清空活动类字段（步数/距离/消耗），保留心率血压等最近测量值。
         // 背景：整天总计（0x0C）并非每次都会回包，若不清空，上一轮的旧步数会一直
         // 挡住这一轮按小时汇总（0x02）算出的新值，表现为步数停在首次连接时的数字。
         health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
-        // 0x06 实时步数开关（payload 0x01）：官方在同步前打开，手表才会在步数变化时主动推送，
-        // 否则只能等下一次轮询。失败无害，手表会忽略不支持的子命令
+        val token = ++syncToken
+        historyRequested = false
+        syncFinished = false
+        syncForceReport = forceReport
+        syncStepsBefore = snap.steps
+        // 一轮同步最长 16 秒，期间定时刷新与其它轮同步都让路
+        syncBusyUntil = System.currentTimeMillis() + 25_000L
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_REALTIME_STEP, byteArrayOf(0x01))
-        // 0x01 同步开始；0x0A 让手表把当天数据整包推过来
+        // 手表不回 ACK 时 1.5 秒兜底，避免个别固件因为没有 ACK 就永远不发起同步
+        main.postDelayed({ requestHistory(token) }, 1_500L)
+    }
+
+    /** 发出「请给全部历史」，并安排本轮收尾；token 变化说明已发起新一轮，旧定时器作废 */
+    private fun requestHistory(token: Int) {
+        if (token != syncToken || historyRequested) return
+        if (snap.state != STATE_CONNECTED) return
+        historyRequested = true
+        LogStore.log("watch", "开始拉取手表历史数据")
         writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
-        val subs = listOf(
+        // 步数/心率/血压再点名要一次：官方只靠 0x01 推送，个别固件漏推这几类时有个兜底。
+        // 睡眠与血氧只能由手表在历史流里主动推（0x09/0x0E 是推送类型，不是请求），点发没有意义
+        val nudges = listOf(
             HryFineProtocol.SUB_HEALTH_TODAY,
             HryFineProtocol.SUB_HEALTH_TODAY_TOTAL,
             HryFineProtocol.SUB_HEALTH_HOURLY,
-            0x04, // 心率
-            0x05, // 血压
-            0x09, // 睡眠
-            0x0E, // 血氧
+            0x04,
+            0x05,
         )
-        subs.forEachIndexed { i, sub ->
+        nudges.forEachIndexed { i, sub ->
             main.postDelayed({
-                if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
-            }, 500L * (i + 1))
+                if (token == syncToken && !syncFinished && snap.state == STATE_CONNECTED) {
+                    writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
+                }
+            }, 1_200L + 500L * i)
         }
-        // 结束包给足 10 秒：手表的整包数据流顺序是 逐时步数 → 心率/血压 → 睡眠 → 当天总计，
-        // 4 秒就发 0x08 会把排在后面的睡眠截断，表现为步数正常但睡眠一直拿不到
-        val endAt = 10_000L
-        syncBusyUntil = System.currentTimeMillis() + endAt + 5_000L
-        // 0x08 同步结束：不回这个包，手表会停在同步态，后续同步请求可能被忽略
-        main.postDelayed({
-            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
-        }, endAt)
-        // 睡眠与血氧在结束包之后再补请求一次：手表在整包数据流期间不一定应答单指标请求，
-        // 只发在 0x08 之前时睡眠经常整轮拿不到
-        main.postDelayed({
-            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, 0x09)
-        }, endAt + 1200)
-        main.postDelayed({
-            if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, 0x0E)
-        }, endAt + 2400)
-        main.postDelayed({
-            if (snap.state == STATE_CONNECTED) {
-                snap = snap.copy(updatedAt = System.currentTimeMillis())
-                publish()
-                LogStore.log("watch", "手表数据同步完成：" + describe(snap))
-                // 同步拿到的新数据要立刻上报，否则插件只能看到上一轮定时上报的快照，
-                // 表现为步数一直停在首次连接时的数字
-                notifySynced()
-            }
-        }, endAt + 4000)
+        main.postDelayed({ finishSync(token) }, 16_000L)
+    }
+
+    /** 本轮收尾：补结束包、刷新界面、按需上报。重复调用无副作用 */
+    private fun finishSync(token: Int) {
+        if (token != syncToken || syncFinished) return
+        syncFinished = true
+        if (snap.state == STATE_CONNECTED) {
+            writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
+        }
+        // 手表自己发过结束包就再等 1.5 秒收尾，让紧跟着的最后几帧也能落库
+        snap = snap.copy(updatedAt = System.currentTimeMillis())
+        publish()
+        LogStore.log("watch", "手表数据同步完成：" + describe(snap))
+        // 定时刷新只在步数变化时上报，避免把上报频率抬到 1 分钟一次
+        if (syncForceReport || snap.steps != syncStepsBefore) notifySynced()
+    }
+
+    /** 昨天与今天的 yyyyMMdd，用于丢弃历史流里的旧日期记录 */
+    private fun dateKey(daysAgo: Int): Int {
+        val c = java.util.Calendar.getInstance()
+        c.add(java.util.Calendar.DAY_OF_MONTH, -daysAgo)
+        return c.get(java.util.Calendar.YEAR) * 10000 +
+            (c.get(java.util.Calendar.MONTH) + 1) * 100 +
+            c.get(java.util.Calendar.DAY_OF_MONTH)
     }
 
     @SuppressLint("MissingPermission")
@@ -1072,13 +1100,34 @@ object WatchManager {
                     sedentaryOn = settings[0x03]?.firstOrNull()?.let { (it.toInt() and 0xFF) != 0 },
                     raiseWristOn = settings[0x07]?.firstOrNull()?.let { (it.toInt() and 0xFF) != 0 },
                 )
+                // 睡眠监测是手表自己按窗口统计的：开关关掉时手表不会生成任何睡眠记录，
+                // 客户端再请求也拿不到。这里只读回诊断，关闭时按原窗口打开
+                HryFineProtocol.parseSleepWindow(settings[0x05])?.let { w ->
+                    LogStore.log("watch", "手表睡眠监测 " + w.describe())
+                    if (!w.enabled) {
+                        val unset = w.startMin == 0 && w.endMin == 0
+                        val start = if (unset) 22 * 60 else w.startMin
+                        val end = if (unset) 8 * 60 else w.endMin
+                        writeFrame(HryFineProtocol.GROUP_GENERAL, 0x0F,
+                            HryFineProtocol.encodeSleepWindow(true, start, end))
+                        LogStore.log("watch", "手表睡眠监测原本关闭，已按原窗口开启")
+                    }
+                }
                 publish()
             }
-            HryFineProtocol.GROUP_SPORTS -> if (!frame.isAck) {
-                // 0x08 由手表在历史数据流结束时主动发出，日志里能确认这一轮到底流了多久
-                if (frame.sub == HryFineProtocol.SUB_HEALTH_END) LogStore.log("watch", "手表历史数据流已结束")
-                health = HryFineProtocol.decodeHealth(frame.sub, frame.payload, health)
-                applyHealth()
+            HryFineProtocol.GROUP_SPORTS -> {
+                if (frame.isAck) {
+                    // 官方流程：手表 ACK「实时步数」命令之后才发「同步全部历史」
+                    if (frame.sub == HryFineProtocol.SUB_HEALTH_REALTIME_STEP) requestHistory(syncToken)
+                } else if (frame.sub == HryFineProtocol.SUB_HEALTH_END) {
+                    // 0x08 是手表自己发出的历史结束标记，收到就提前收尾
+                    LogStore.log("watch", "手表历史数据流已结束")
+                    val token = syncToken
+                    main.postDelayed({ finishSync(token) }, 1_500L)
+                } else {
+                    health = HryFineProtocol.decodeHealth(frame.sub, frame.payload, health, dateKey(1))
+                    applyHealth()
+                }
             }
             HryFineProtocol.GROUP_DEVICE_INFO -> if (!frame.isAck) {
                 HryFineProtocol.parseDeviceInfo(frame.payload)?.let {
@@ -1167,29 +1216,12 @@ object WatchManager {
                 main.postDelayed(this, 15_000L)
                 return
             }
-            // 完整同步进行中先让路：它自己的结束包要等 10 秒，这里插进去会把睡眠截断
+            // 同步进行中先让路：插进去的请求会把正在推送的历史数据流打断
             if (System.currentTimeMillis() < syncBusyUntil) {
                 main.postDelayed(this, 15_000L)
                 return
             }
-            health = health.copy(steps = null, distanceM = null, kcal = null, hourlySteps = null)
-            resetIfNewDay()
-            val before = snap.steps
-            // 与完整同步同样成帧：开始 -> 当天总计 -> 逐时汇总 -> 结束
-            writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_SYNC)
-            val steps = listOf(HryFineProtocol.SUB_HEALTH_TODAY_TOTAL, HryFineProtocol.SUB_HEALTH_HOURLY)
-            steps.forEachIndexed { i, sub ->
-                main.postDelayed({
-                    if (snap.state == STATE_CONNECTED) writeFrame(HryFineProtocol.GROUP_SPORTS, sub)
-                }, 400L * (i + 1))
-            }
-            main.postDelayed({
-                if (snap.state == STATE_CONNECTED) {
-                    writeFrame(HryFineProtocol.GROUP_SPORTS, HryFineProtocol.SUB_HEALTH_END)
-                    // 每分钟刷新只在步数确实变化时补报，避免把上报频率抬到 5 倍
-                    if (snap.steps != before) notifySynced()
-                }
-            }, 400L * (steps.size + 2))
+            syncHealth(forceReport = false)
             main.postDelayed(this, STEP_REFRESH_MS)
         }
     }
