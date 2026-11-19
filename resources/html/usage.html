@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; width: 760px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .wrap { min-height: 100%; background: {{ backdrop.background }}; padding: 26px; }
+  .glass { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-radius: 20px; padding: 26px 30px; color: #eef3fb; box-shadow: 0 10px 34px rgba(0,0,0,.34); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .head .title { font-size: 29px; font-weight: 700; letter-spacing: 1px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .head .count { font-size: 15px; color: {{ backdrop.accents[5] }}; }
+  .hint { font-size: 14px; color: {{ backdrop.accents[5] }}; margin-bottom: 18px; }
+  .dev { background: rgba(10,16,30,.45); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  .dev .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .dev .name { font-size: 20px; font-weight: 700; }
+  .dev .model { font-size: 13px; color: #aab4cc; margin-top: 3px; }
+  .badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .badge.on { background: rgba(61,213,152,.18); color: #5fe3ac; border: 1px solid rgba(61,213,152,.45); }
+  .badge.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .total { font-size: 14px; color: #aab4cc; margin-bottom: 10px; }
+  .total b { color: #eef3fb; }
+  .u { margin-bottom: 9px; }
+  .u .line { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 5px; }
+  .u .uname { font-weight: 700; }
+  .u .utime { color: #c7d0e4; font-weight: 600; }
+  .u .ucount { color: {{ backdrop.accents[4] }}; font-weight: 600; margin-left: 10px; }
+  .u .bar { height: 11px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.14); }
+  .u .fill { height: 100%; border-radius: 999px; }
+  .empty { font-size: 14px; color: #8b93a7; }
+  .meta { font-size: 13px; color: #8b93a7; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="glass">
+    <div class="head">
+      <div class="title">{{ title }}</div>
+      <div class="count">{{ count }} 台设备</div>
+    </div>
+    <div class="hint">{{ hint }}</div>
+    {{ each devices d }}
+    <div class="dev">
+      <div class="top">
+        <div>
+          <div class="name" style="color: {{ backdrop.accents[$index % 6] }};">{{ d.device_name }}</div>
+          <div class="model">{{ d.device_model }} · 最近上报 {{ d.report_time_text }}</div>
+        </div>
+        <div class="badge {{ d.online ? "on" : "off" }}">{{ d.online ? "在线" : "离线" }}</div>
+      </div>
+      {{ if d.has_data }}
+      <div class="total">24 小时合计使用 <b>{{ d.total_text }}</b>{{ d.usage_count }}</div>
+      {{ each d.apps a }}
+      <div class="u">
+        <div class="line">
+          <span class="uname" style="color: {{ backdrop.accents[$index % 6] }};">{{ a.app }}</span>
+          <span class="utime">{{ a.time }}{{ if a.count_text }}<span class="ucount">{{ a.count_text }}</span>{{ /if }}</span>
+        </div>
+        <div class="bar"><div class="fill" style="width: {{ a.width }}%; background: linear-gradient(90deg, {{ backdrop.accents[$index % 6] }}, {{ backdrop.accents[($index + 2) % 6] }});"></div></div>
+      </div>
+      {{ /each }}
+      {{ else }}
+      <div class="empty">暂无使用记录：设备需更新到新版 App 并授予「使用情况访问权限」</div>
+      {{ /if }}
+    </div>
+    {{ /each }}
+    <div class="meta"><span>Mugshot · 24 小时使用</span><span>{{ time }}</span></div>
+  </div>
+</div>
+</body>
+</html>

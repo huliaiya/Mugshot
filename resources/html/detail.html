@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; background: {{ backdrop.background }}; width: 720px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .card { padding: 34px 38px; background: rgba(10,16,30,.66); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .head .title { font-size: 30px; font-weight: 700; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .head .sub { font-size: 15px; color: {{ backdrop.accents[5] }}; margin-top: 6px; }
+  .badge { font-size: 15px; padding: 5px 14px; border-radius: 999px; font-weight: 600; }
+  .badge.live { background: rgba(61,213,152,.14); color: #3dd598; border: 1px solid rgba(61,213,152,.4); }
+  .badge.cache { background: rgba(255,183,77,.13); color: #ffb74d; border: 1px solid rgba(255,183,77,.4); }
+  .badge.none { background: rgba(255,99,99,.13); color: #ff6363; border: 1px solid rgba(255,99,99,.4); }
+  .note { font-size: 14px; color: #ffb74d; background: rgba(255,183,77,.08); border: 1px dashed rgba(255,183,77,.35); border-radius: 10px; padding: 9px 14px; margin-bottom: 18px; }
+  .section { background: rgba(10,16,30,.55); border: 1px solid #263150; border-radius: 14px; padding: 6px 22px; margin-bottom: 16px; }
+  .section .row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #1f2a44; font-size: 16px; }
+  .section .row:last-child { border-bottom: none; }
+  .section .row .k { color: {{ backdrop.accents[3] }}; }
+  .section .row .v { color: #f2f5fa; font-weight: 700; text-align: right; max-width: 400px; word-break: break-all; }
+  .section h3 { font-size: 16px; color: {{ backdrop.accents[2] }}; padding: 12px 0 4px; }
+  table.hist { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 14px; }
+  table.hist th { color: #8b93a7; font-weight: 500; text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a3550; }
+  table.hist td { padding: 8px; color: #c8d0e0; border-bottom: 1px solid #1f2a44; }
+  table.hist tr:last-child td { border-bottom: none; }
+  .meta { font-size: 14px; color: #66708a; display: flex; justify-content: space-between; border-top: 1px solid #1f2a44; padding-top: 14px; }
+  .watch { background: rgba(10,16,30,.55); border: 1px solid #263150; border-left: 3px solid {{ backdrop.accents[2] }}; border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; }
+  .watch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .watch-head .wname { font-size: 19px; font-weight: 700; }
+  .watch-head .wtag { font-size: 13px; color: #8a93ad; margin-left: 10px; font-weight: 500; }
+  .watch-badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .watch-badge.on { background: rgba(61,213,152,.16); color: #3dd598; border: 1px solid rgba(61,213,152,.45); }
+  .watch-badge.off { background: rgba(140,150,175,.16); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .watch-batt { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px dashed #24314e; }
+  .watch-batt .wk { font-size: 14px; color: {{ backdrop.accents[3] }}; }
+  .watch-batt .wv { font-size: 24px; font-weight: 700; margin-left: auto; }
+  .battery-bar.small { height: 8px; margin-top: 7px; flex: none; }
+  .battery-bar { flex: 1; height: 14px; background: rgba(10,16,30,.65); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.22); box-shadow: inset 0 1px 3px rgba(0,0,0,.55); }
+  .battery-fill { display: block; height: 100%; min-width: 6px; border-radius: 999px; background-color: #22d3ee; background-image: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .battery-fill.hi { background-color: #22e08a; background-image: linear-gradient(90deg, #00e5ff, #22e08a, #d0f224); box-shadow: 0 0 12px rgba(34,224,138,.7); }
+  .battery-fill.mid { background-color: #fb923c; background-image: linear-gradient(90deg, #ffc400, #ff8a3d, #ff5fa2); box-shadow: 0 0 12px rgba(255,138,61,.7); }
+  .battery-fill.lo { background-color: #ff2d55; background-image: linear-gradient(90deg, #ff2d55, #ff6b81, #ff9f43); box-shadow: 0 0 12px rgba(255,45,85,.7); }
+  .battery-fill.unknown { background-color: #4f46e5; background-image: repeating-linear-gradient(45deg, rgba(34,211,238,.65) 0 9px, rgba(167,139,250,.5) 9px 18px); }
+  .watch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 18px; }
+  .wm .wk { font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 6px; }
+  .wm .wv { font-size: 20px; font-weight: 700; }
+  .watch-foot { display: flex; justify-content: space-between; font-size: 13px; color: #8a93ad; margin-top: 16px; padding-top: 12px; border-top: 1px solid #1f2a44; }
+  .wmeta { font-size: 13px; color: #66708a; margin-top: 10px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="head">
+    <div>
+      <div class="title">{{ title }}</div>
+      <div class="sub">{{ device_name }}{{ if device_model }} · {{ device_model }}{{ /if }}</div>
+    </div>
+    <div class="badge {{ source_class }}">{{ source_text }}</div>
+  </div>
+
+  {{ if note }}<div class="note">{{ note }}</div>{{ /if }}
+
+  <div class="section">
+    <div class="row"><span class="k">设备名称</span><span class="v">{{ device_name }}</span></div>
+    <div class="row"><span class="k">设备 ID</span><span class="v">{{ device_id_short }}</span></div>
+    <div class="row"><span class="k">设备型号</span><span class="v">{{ device_model }}</span></div>
+    <div class="row"><span class="k">连接状态</span><span class="v">{{ online ? "在线" : "离线" }}</span></div>
+    <div class="row"><span class="k">首次接入</span><span class="v">{{ first_seen }}</span></div>
+    <div class="row"><span class="k">累计上报</span><span class="v">{{ report_count }} 次</span></div>
+    <div class="row"><span class="k">实时唤醒</span><span class="v">{{ fresh_count }} 次</span></div>
+    <div class="row"><span class="k">最后上报</span><span class="v">{{ report_time }}{{ if last_report_ago }}（{{ last_report_ago }}）{{ /if }}</span></div>
+  </div>
+
+  {{ if has_report }}
+  <div class="section">
+    <h3>当前状态</h3>
+    <div class="row"><span class="k">正在使用</span><span class="v">{{ foreground_app }}</span></div>
+    <div class="row"><span class="k">应用包名</span><span class="v">{{ foreground_pkg || "-" }}</span></div>
+    <div class="row"><span class="k">前台 Activity</span><span class="v">{{ activity_text }}</span></div>
+    <div class="row"><span class="k">屏幕 / 网络</span><span class="v">{{ screen }} · {{ network }}</span></div>
+    <div class="row"><span class="k">电池 / 充电</span><span class="v">{{ battery_text }} · {{ charging }}</span></div>
+    <div class="row"><span class="k">电池温度</span><span class="v">{{ temp_text }}</span></div>
+    <div class="row"><span class="k">后台应用</span><span class="v">{{ background_text || "-" }}</span></div>
+  </div>
+  {{ /if }}
+
+  {{ if watch_on }}
+  <div class="watch">
+    <div class="watch-head">
+      <div><span class="wname">{{ watch_name }}</span><span class="wtag">手表健康</span></div>
+      <div class="watch-badge {{ watch_connected ? "on" : "off" }}">{{ watch_state_text }}</div>
+    </div>
+    <div class="watch-batt">
+      <span class="wk">今日步数</span>
+      <span class="wv">{{ watch_steps_text }}</span>
+    </div>
+    <div class="watch-grid">
+      <div class="wm"><div class="wk">电量</div><div class="wv">{{ watch_battery_text }}</div><div class="battery-bar small"><div class="battery-fill {{ watch_battery_class }}" style="width: {{ watch_battery_width }}%;"></div></div></div>
+      <div class="wm"><div class="wk">心率</div><div class="wv">{{ watch_heart_text }}</div></div>
+      <div class="wm"><div class="wk">血压</div><div class="wv">{{ watch_bp_text }}</div></div>
+      <div class="wm"><div class="wk">血氧</div><div class="wv">{{ watch_spo2_text }}</div></div>
+      <div class="wm"><div class="wk">睡眠</div><div class="wv">{{ watch_sleep_text }}</div></div>
+      <div class="wm"><div class="wk">距离</div><div class="wv">{{ watch_distance_text }}</div></div>
+    </div>
+    <div class="watch-foot"><span>消耗 {{ watch_kcal_text }}</span><span>同步 {{ watch_sync_text }}</span></div>
+    <div class="wmeta">固件 {{ watch_firmware_text }} · 能力 {{ watch_features_text }}</div>
+  </div>
+  {{ /if }}
+
+  {{ if recent && recent.length }}
+  <div class="section">
+    <h3>最近上报记录</h3>
+    <table class="hist">
+      <tr><th>时间</th><th>应用</th><th>屏幕</th><th>电量</th></tr>
+      {{ each recent item }}
+      <tr>
+        <td>{{ item.time }}</td>
+        <td>{{ item.app }}</td>
+        <td>{{ item.screen }}</td>
+        <td>{{ item.battery }}</td>
+      </tr>
+      {{ /each }}
+    </table>
+  </div>
+  {{ /if }}
+
+  <div class="meta"><span>Mugshot · 设备详情</span><span>{{ device_id_short }}</span></div>
+</div>
+</body>
+</html>

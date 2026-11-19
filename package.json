@@ -1,0 +1,10 @@
+{
+  "name": "mugshot-plugin",
+  "version": "1.0.0",
+  "description": "Mugshot - TRSS-Yunzai 设备状态远程查看插件",
+  "type": "module",
+  "main": "index.js",
+  "author": "Mugshot",
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/huliaiya/Mugshot"
+}

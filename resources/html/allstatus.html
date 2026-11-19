@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif; width: 760px; zoom: 2; color: #f2f5fa; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .wrap { min-height: 100%; background: {{ backdrop.background }}; padding: 26px; }
+  .glass { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border-radius: 20px; padding: 26px 30px; color: #eef3fb; box-shadow: 0 10px 34px rgba(0,0,0,.34); }
+  .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .head .title { font-size: 29px; font-weight: 700; letter-spacing: 1px; background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}, {{ backdrop.accents[4] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .head .count { font-size: 15px; color: {{ backdrop.accents[5] }}; }
+  .hint { font-size: 14px; color: {{ backdrop.accents[5] }}; margin-bottom: 18px; }
+  .dev { background: rgba(10,16,30,.45); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+  .dev .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .dev .name { font-size: 20px; font-weight: 700; }
+  .dev .model { font-size: 13px; color: #aab4cc; margin-top: 3px; }
+  .badge { font-size: 13px; padding: 4px 12px; border-radius: 999px; font-weight: 600; }
+  .badge.on { background: rgba(61,213,152,.18); color: #5fe3ac; border: 1px solid rgba(61,213,152,.45); }
+  .badge.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .rows { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
+  .row { font-size: 14px; color: #aab4cc; }
+  .row .k { color: {{ backdrop.accents[3] }}; margin-right: 6px; }
+  .row .v { color: #eef3fb; font-weight: 600; }
+  .row.wide { grid-column: 1 / -1; }
+  .row .v.app { background: linear-gradient(90deg, {{ backdrop.accents[0] }}, {{ backdrop.accents[2] }}); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; word-break: break-all; font-weight: 700; }
+  .battery { display: flex; align-items: center; gap: 8px; }
+  .battery .bar { display: block; flex: 1; height: 13px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); box-shadow: inset 0 1px 2px rgba(0,0,0,.5); min-width: 96px; }
+  .battery .fill { display: block; height: 100%; min-width: 5px; border-radius: 999px; background-color: #22d3ee; background-image: linear-gradient(90deg, #22d3ee, #a78bfa); }
+  .fill.hi { background-color: #22e08a; background-image: linear-gradient(90deg,#00e5ff,#22e08a,#d0f224); box-shadow: 0 0 10px rgba(34,224,138,.65); }
+  .fill.mid { background-color: #fb923c; background-image: linear-gradient(90deg,#ffc400,#ff8a3d,#ff5fa2); box-shadow: 0 0 10px rgba(255,138,61,.65); }
+  .fill.lo { background-color: #ff2d55; background-image: linear-gradient(90deg,#ff2d55,#ff6b81,#ff9f43); box-shadow: 0 0 10px rgba(255,45,85,.65); }
+  .fill.unknown { background-color: #4f46e5; background-image: repeating-linear-gradient(45deg, rgba(34,211,238,.65) 0 8px, rgba(167,139,250,.5) 8px 16px); }
+  .usage { border-top: 1px dashed rgba(255,255,255,.16); margin-top: 12px; padding-top: 10px; }
+  .usage .uk { font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 7px; }
+  .usage .total { color: {{ backdrop.accents[5] }}; margin-left: 6px; }
+  .urow { display: flex; align-items: center; gap: 10px; font-size: 14px; margin-bottom: 6px; }
+  .urow .un { width: 150px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .urow .ut { width: 92px; color: #e6ecf7; font-weight: 600; }
+  .urow .uc { width: 62px; color: #aab4cc; }
+  .urow .ub { flex: 1; height: 8px; background: rgba(10,16,30,.55); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,.14); }
+  .urow .uf { display: block; height: 100%; border-radius: 999px; }
+  .meta { font-size: 13px; color: #8b93a7; display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; margin-top: 4px; }
+  .watch { border-top: 1px dashed rgba(255,255,255,.16); margin-top: 12px; padding-top: 10px; }
+  .watch .uk { display: flex; align-items: center; font-size: 13px; color: {{ backdrop.accents[3] }}; margin-bottom: 8px; }
+  .watch .uk .wtag { margin-left: 10px; font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .watch .uk .wtag.on { background: rgba(61,213,152,.18); color: #5fe3ac; border: 1px solid rgba(61,213,152,.45); }
+  .watch .uk .wtag.off { background: rgba(140,150,175,.18); color: #aab4cc; border: 1px solid rgba(140,150,175,.4); }
+  .wgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 24px; }
+  .wrow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+  .wrow .wk { color: {{ backdrop.accents[3] }}; }
+  .wrow .wv { color: #eef3fb; font-weight: 600; }
+  .wfoot { display: flex; gap: 20px; font-size: 13px; color: #aab4cc; margin-top: 9px; }
+  .wrow .battery { flex: 0 0 auto; gap: 6px; }
+  .wrow .battery .bar { flex: 0 0 auto; width: 88px; min-width: 0; height: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="glass">
+    <div class="head">
+      <div class="title">{{ title }}</div>
+      <div class="count">{{ count }} 台设备 · 在线 {{ onlineCount }}</div>
+    </div>
+    <div class="hint">{{ hint }}</div>
+    {{ each devices d }}
+    <div class="dev">
+      <div class="top">
+        <div>
+          <div class="name" style="color: {{ backdrop.accents[$index % 6] }};">{{ d.device_name }}</div>
+          <div class="model">{{ d.device_model }} · {{ d.report_time_text }}</div>
+        </div>
+        <div class="badge {{ d.online ? "on" : "off" }}">{{ d.online ? "在线" : "离线" }}</div>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="k">正在使用</span><span class="v app">{{ d.appText }}</span></div>
+        <div class="row"><span class="k">电池</span><span class="v"><span class="battery"><span class="bar"><span class="fill {{ d.battery_class }}" style="width: {{ d.battery_width }}%;"></span></span> {{ d.batteryText }}</span></span></div>
+        <div class="row"><span class="k">屏幕</span><span class="v">{{ d.screenText }}</span></div>
+        <div class="row"><span class="k">网络</span><span class="v">{{ d.networkText }}</span></div>
+        <div class="row"><span class="k">充电</span><span class="v">{{ d.chargingText }}</span></div>
+        <div class="row"><span class="k">温度</span><span class="v">{{ d.tempText }}</span></div>
+        <div class="row wide"><span class="k">后台应用</span><span class="v">{{ d.backgroundText || "-" }}</span></div>
+        <div class="row"><span class="k">最近上报</span><span class="v">{{ d.last_report_short }}</span></div>
+      </div>
+      {{ if d.watch_on }}
+      <div class="watch">
+        <div class="uk">手表 {{ d.watch_name }}<span class="wtag {{ d.watch_connected ? "on" : "off" }}">{{ d.watch_state_text }}</span></div>
+        <div class="wgrid">
+          <div class="wrow"><span class="wk">今日步数</span><span class="wv">{{ d.watch_steps_text }}</span></div>
+          <div class="wrow"><span class="wk">电量</span><span class="wv"><span class="battery"><span class="bar"><span class="fill {{ d.watch_battery_class }}" style="width: {{ d.watch_battery_width }}%;"></span></span> {{ d.watch_battery_text }}</span></span></div>
+          <div class="wrow"><span class="wk">心率</span><span class="wv">{{ d.watch_heart_text }}</span></div>
+          <div class="wrow"><span class="wk">血压</span><span class="wv">{{ d.watch_bp_text }}</span></div>
+          <div class="wrow"><span class="wk">血氧</span><span class="wv">{{ d.watch_spo2_text }}</span></div>
+          <div class="wrow"><span class="wk">睡眠</span><span class="wv">{{ d.watch_sleep_text }}</span></div>
+        </div>
+        <div class="wfoot"><span>消耗 {{ d.watch_kcal_text }}</span><span>距离 {{ d.watch_distance_text }}</span><span>同步 {{ d.watch_sync_text }}</span></div>
+      </div>
+      {{ /if }}
+      {{ if d.usage.length }}
+      <div class="usage">
+        <div class="uk">近 24 小时使用<span class="total">共 {{ d.usage_total }}</span></div>
+        {{ each d.usage u }}
+        <div class="urow">
+          <span class="un" style="color: {{ backdrop.accents[$index % 6] }};">{{ u.app }}</span>
+          <span class="ut">{{ u.time }}</span>
+          <span class="uc">{{ u.count_text }}</span>
+          <span class="ub"><span class="uf" style="width: {{ u.width }}%; background: linear-gradient(90deg, {{ backdrop.accents[$index % 6] }}, {{ backdrop.accents[($index + 2) % 6] }});"></span></span>
+        </div>
+        {{ /each }}
+      </div>
+      {{ /if }}
+    </div>
+    {{ /each }}
+    <div class="meta"><span>Mugshot · 全部设备状态</span><span>数据来自设备上报</span></div>
+  </div>
+</div>
+</body>
+</html>
