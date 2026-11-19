@@ -214,6 +214,11 @@ object WatchManager {
         val g = gatt
         if (g != null && snap.state == STATE_CONNECTED) {
             requestBattery()
+            // 手表只在连接后推一次睡眠，后续同步不会再给；睡眠缺失或超过 30 分钟没更新时，
+            // 手动同步结束仍拿不到就重连一次，效果等同重进 App
+            sleepReconnectCooldown = 5 * 60_000L
+            wantSleepRefresh = snap.sleepMin < 0 ||
+                System.currentTimeMillis() - sleepFrameAt > 30 * 60_000L
             syncHealth()
         } else {
             reconnectIdx = 0
@@ -282,6 +287,10 @@ object WatchManager {
             return
         }
         LogStore.log("watch", "自动同步：拉取健康数据")
+        // 睡眠超过 6 小时没更新（通常是早上还没拉过）时，允许这轮同步后重连一次补睡眠
+        sleepReconnectCooldown = 60 * 60_000L
+        wantSleepRefresh = snap.sleepMin < 0 ||
+            System.currentTimeMillis() - sleepFrameAt > 6 * 3600_000L
         requestBattery()
         syncHealth()
         scheduleAutoMeasure()
@@ -897,6 +906,13 @@ object WatchManager {
     private var syncFinished = false
     private var syncForceReport = true
     private var syncStepsBefore: Int? = null
+    /** 最近一次收到睡眠帧的时间：手表只在连接后推一次睡眠，靠它判断数据是否过期 */
+    private var sleepFrameAt = 0L
+    /** 这轮同步是否在等睡眠：等不到就重连一次（手表连接后只推一次睡眠，重连才会重推） */
+    private var wantSleepRefresh = false
+    private var lastSleepReconnectAt = 0L
+    /** 为避免频繁重连：手动同步 5 分钟一次，自动同步 1 小时一次 */
+    private var sleepReconnectCooldown = 5 * 60_000L
     private var pendingMeasureDeadline = 0L
 
     private fun measure(sub: Int) {
@@ -981,6 +997,8 @@ object WatchManager {
             HryFineProtocol.SUB_HEALTH_HOURLY,
             0x04,
             0x05,
+            // 睡眠历史：官方 App 没用这个子命令，但个别固件支持它重推一次睡眠
+            HryFineProtocol.SUB_HEALTH_SLEEP_HISTORY,
         )
         nudges.forEachIndexed { i, sub ->
             main.postDelayed({
@@ -1005,6 +1023,42 @@ object WatchManager {
         LogStore.log("watch", "手表数据同步完成：" + describe(snap))
         // 定时刷新只在步数变化时上报，避免把上报频率抬到 1 分钟一次
         if (syncForceReport || snap.steps != syncStepsBefore) notifySynced()
+        // 手动同步在等睡眠却没等到：重连一次（手表每次连接只推一次睡眠）
+        if (wantSleepRefresh) {
+            wantSleepRefresh = false
+            val now = System.currentTimeMillis()
+            if (now - lastSleepReconnectAt > sleepReconnectCooldown) {
+                lastSleepReconnectAt = now
+                main.postDelayed({ restartForSleepSync() }, 1_000L)
+            }
+        }
+    }
+
+    /** 断开后立即重连：手表在每次连接建立后会重新推送睡眠，效果等同重进 App */
+    private fun restartForSleepSync() {
+        if (!Prefs.watchEnabled || userStopped) return
+        val addr = Prefs.watchAddress
+        if (addr.isBlank()) return
+        val dev = try {
+            adapter()?.getRemoteDevice(addr)
+        } catch (e: Exception) {
+            LogStore.log("watch", "重连取睡眠失败：" + (e.message ?: "未知错误"))
+            null
+        } ?: return
+        LogStore.log("watch", "本轮同步没有拿到睡眠，重连手表重新拉取")
+        val old = gatt
+        gatt = null
+        try {
+            old?.disconnect()
+        } catch (_: Exception) {
+        }
+        try {
+            old?.close()
+        } catch (_: Exception) {
+        }
+        main.postDelayed({
+            if (Prefs.watchEnabled && !userStopped) connect(dev)
+        }, 1_000L)
     }
 
     /** 昨天与今天的 yyyyMMdd，用于丢弃历史流里的旧日期记录 */
@@ -1125,7 +1179,16 @@ object WatchManager {
                     val token = syncToken
                     main.postDelayed({ finishSync(token) }, 1_500L)
                 } else {
+                    val before = health.sleepLightMin
                     health = HryFineProtocol.decodeHealth(frame.sub, frame.payload, health, dateKey(1))
+                    if (frame.sub == 0x09 && health.sleepLightMin != null) {
+                        if (health.sleepLightMin != before) sleepFrameAt = System.currentTimeMillis()
+                        wantSleepRefresh = false
+                        LogStore.log(
+                            "watch",
+                            "睡眠解析：浅睡 ${health.sleepLightMin} 分，深睡 ${health.sleepDeepMin} 分，清醒 ${health.sleepAwakeMin ?: 0} 分",
+                        )
+                    }
                     applyHealth()
                 }
             }

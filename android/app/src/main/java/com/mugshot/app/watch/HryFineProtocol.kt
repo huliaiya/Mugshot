@@ -45,6 +45,8 @@ object HryFineProtocol {
     const val SUB_SETTINGS_REPLY = 0x09
     const val SUB_HEALTH_SYNC = 0x01
     const val SUB_HEALTH_HOURLY = 0x02
+    /** 官方协议里定义但 App 未使用的「同步睡眠历史」子命令，部分固件支持它重新推一次睡眠 */
+    const val SUB_HEALTH_SLEEP_HISTORY = 0x03
     const val SUB_HEALTH_REALTIME_STEP = 0x06
     const val SUB_HEALTH_END = 0x08
     const val SUB_HEALTH_TODAY = 0x0A
